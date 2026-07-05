@@ -2,7 +2,7 @@
 
 ## Status Summary
 - Last update: 2026-07-05
-- Active phase: PHASE 3 complete — next up PHASE 4 (integration)
+- Active phase: PHASE 4 complete — next up PHASE 5 (packaging)
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -18,13 +18,57 @@
 - [x] PHASE 1: core/ — media handling (ffmpeg wrapper, time cutting, WAV extraction) + tests
 - [x] PHASE 2: core/ — DSP (STFT, spectrogram matrix, notch chain, normalize) + tests
 - [x] PHASE 3: ui/ — main window, all panels, status icons, worker threads (headless-testable)
-- [ ] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
+- [x] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
 - [ ] PHASE 5: packaging — build-windows.yml completed, exe artifact verified on Windows 10, README
 
 ## Phase Records
 (when each phase completes: what was done, which files, test results,
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
+
+### PHASE 4 (integration) — 2026-07-05
+- Done: broader end-to-end scenario coverage through the real MainWindow
+  (never mocked below the sounddevice boundary), plus a stereo GoPro-
+  shaped fixture.
+- Files: scripts/make_fixtures.py gained `stereo_tone_440hz_48k.{wav,mp4}`
+  (L=0.8·sin(440), R=0.4·sin(440) — makes the channel-averaging downmix
+  independently verifiable); tests/test_integration.py (6 tests): stereo
+  downmix end-to-end, concurrent-click guard, output-overwrite, a
+  realistic multi-frequency rotor-harmonic notch chain via the UI text
+  field, and two time-range boundary cases.
+- **Real bug found and fixed**: writing the "processing twice in a row"
+  test exposed a genuine race in MainWindow. The Process button was
+  re-enabled in `_on_process_finished`/`_on_process_failed` (on the
+  worker's `finished`/`failed` signal), but the QThread itself only
+  fully stops later, on `QThread.finished`. A user (or this test)
+  clicking Process again inside that gap creates a second QThread while
+  `self._thread` still pointed at the first, not-yet-stopped one; the
+  first thread's late `finished` signal then fired `_on_thread_stopped`,
+  which nulled `self._thread`/`self._worker` out from under the *second*,
+  still-running thread — dropping its last Python reference and letting
+  the GC destroy a live QThread (hard abort, reproduced in the sandbox).
+  Fixed by moving `_set_controls_enabled(True)` into `_on_thread_stopped`
+  itself, so the button now stays disabled for the QThread's entire
+  lifetime, not just until the worker signals completion — this makes
+  the overlap structurally impossible rather than papering over it.
+  `tests/test_main_window.py`'s end-to-end test was updated to check
+  `isEnabled()` only after `_thread is None`, matching the real invariant.
+- Also discovered (not a bug, a design boundary worth recording): the
+  time-input field only keeps 3 fractional digits (`core/timefmt.parse_time`),
+  so the finest cut a user can type is 1 ms — 48 samples at 48 kHz, always
+  comfortably above `filtfilt`'s ~9-sample padlen for a biquad notch.
+  The "signal too short to filter" `InvalidTimeRangeError` path is real
+  and unit-tested (`test_dsp.py`), but is unreachable through the UI's
+  own precision; `test_integration.py` asserts the smallest expressible
+  cut succeeds instead of asserting an unreachable error.
+- Docs: docs/manual_test_windows.md gained checks for the progress bar,
+  safe close-during-processing, rapid double-click, output overwrite,
+  and multi-channel/ambisonic GoPro 360 sources. README.md rewritten
+  from "infrastructure only" to describe actual usage.
+- Test results: 139 passed headless (repeated 3x with no flakiness),
+  ruff clean.
+- Notes for next session: PHASE 5 is packaging — the PyInstaller spec is
+  still a TODO in build-windows.yml.
 
 ### PHASE 3 review fixes — 2026-07-05
 - A post-PHASE-3 code review produced 4 findings; all fixed same-day:
