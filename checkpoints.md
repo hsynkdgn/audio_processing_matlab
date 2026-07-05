@@ -26,6 +26,27 @@
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
 
+### PHASE 3 review fixes — 2026-07-05
+- A post-PHASE-3 code review produced 4 findings; all fixed same-day:
+  1. media.py audio-stream regex now tolerates surround/ambisonic channel
+     layouts ("5.1(side)", "quad", "4.0", "7.1"); parsing extracted into
+     pure `_parse_audio_stream()` unit-tested against real ffmpeg stderr
+     samples. Unknown layouts fall back to 2 channels instead of
+     rejecting the file (count is informational; extraction downmixes).
+  2. MainWindow.closeEvent now quits+waits the worker thread and stops
+     playback, so closing mid-processing no longer risks destroying a
+     live QThread.
+  3. process_recording gained progress_cb (0→100 stage reporting); the
+     UI shows it in a QProgressBar (worker auto-injects the signal).
+  4. PlaybackAdapter.play clips input to [-1, 1] (the un-normalized
+     "before" signal can slightly exceed the range after DC removal).
+- Crash caught while implementing fix 2: dropping the thread/worker
+  Python references from the worker's `finished` handler let the GC
+  destroy a still-running QThread → hard abort. References are now
+  dropped from `QThread.finished` (thread fully stopped) instead —
+  pattern to keep for any future worker wiring.
+- Test results after fixes: 133 passed headless, ruff clean.
+
 ### PHASE 3 (ui/) — 2026-07-05
 - Done: full GUI layer per qt-ui-conventions skill, plus a thin
   core/pipeline.py added as a prerequisite (composes media.py + dsp.py
