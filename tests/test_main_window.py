@@ -155,3 +155,78 @@ class TestPlayback:
         window = MainWindow()
         qtbot.addWidget(window)
         window._on_stop_playback_clicked()  # must not raise
+
+    def test_playback_buttons_disabled_until_a_result_exists(self, qtbot, tmp_path: Path) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._play_before_button.isEnabled() is False
+        assert window._play_after_button.isEnabled() is False
+        assert window._stop_playback_button.isEnabled() is False
+
+        source = tmp_path / "tone.mp4"
+        shutil.copy(TONE_MP4, source)
+        window._set_input_path(source)
+        window._start_edit.setText("00:00")
+        window._stop_edit.setText("00:01")
+        window._on_process_clicked()
+        # disabled while the run is in flight too
+        assert window._play_before_button.isEnabled() is False
+        qtbot.waitUntil(lambda: window._thread is None, timeout=5000)
+
+        assert window._play_before_button.isEnabled() is True
+        assert window._play_after_button.isEnabled() is True
+        assert window._stop_playback_button.isEnabled() is True
+
+    def test_new_run_resets_playback_status_icons(self, qtbot, tmp_path: Path) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        source = tmp_path / "tone.mp4"
+        shutil.copy(TONE_MP4, source)
+        window._set_input_path(source)
+        window._start_edit.setText("00:00")
+        window._stop_edit.setText("00:01")
+        window._on_process_clicked()
+        qtbot.waitUntil(lambda: window._thread is None, timeout=5000)
+        window._on_play_after_clicked()  # sandbox: sets ✗
+        assert window._play_after_status.text() == "✗"
+
+        window._on_process_clicked()  # second run must clear stale play statuses
+        assert window._play_after_status.text() == "○"
+        qtbot.waitUntil(lambda: window._thread is None, timeout=5000)
+
+
+class TestControlLifecycleOnFailure:
+    def test_button_reenables_after_failed_run_only_when_thread_stops(
+        self, qtbot, tmp_path: Path
+    ) -> None:
+        """The failure path must use the same QThread.finished gating as
+        the success path (an early re-enable here was a real race, found
+        in a project-wide review after PHASE 5)."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        source = tmp_path / "tone.mp4"
+        shutil.copy(TONE_MP4, source)
+        window._set_input_path(source)
+        window._start_edit.setText("00:00")
+        window._stop_edit.setText("00:01")
+        window._notch_edit.setText("24000")  # >= Nyquist -> FilterConfigError in worker
+
+        window._on_process_clicked()
+        qtbot.waitUntil(lambda: window._process_status.text() == "✗", timeout=5000)
+        qtbot.waitUntil(lambda: window._thread is None, timeout=2000)
+        assert window._process_button.isEnabled() is True
+
+
+class TestBrowseDirectoryMemory:
+    def test_last_directory_follows_the_selected_file(self, qtbot, tmp_path: Path) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._last_dir == ""
+        nested = tmp_path / "Kayıtlar" / "Temmuz"
+        nested.mkdir(parents=True)
+        source = nested / "uçuş.mp4"
+        shutil.copy(TONE_MP4, source)
+
+        window._set_input_path(source)
+
+        assert window._last_dir == str(nested)
