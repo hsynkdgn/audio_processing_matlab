@@ -16,6 +16,7 @@ from heli_noise.core.dsp import (
     apply_notch_chain,
     compute_spectrogram,
     normalize_peak,
+    parse_frequency_list,
     remove_dc_offset,
 )
 from heli_noise.core.exceptions import FilterConfigError, InvalidTimeRangeError
@@ -232,3 +233,24 @@ class TestNormalizePeak:
         signal = np.array([1.0, -1.0, 0.5])
         result = normalize_peak(signal)
         assert np.allclose(result, signal)
+
+
+class TestParseFrequencyList:
+    def test_single_value(self) -> None:
+        assert parse_frequency_list("440") == [440.0]
+
+    def test_multiple_values(self) -> None:
+        assert parse_frequency_list("100, 250.5, 400") == [100.0, 250.5, 400.0]
+
+    def test_extra_whitespace_and_trailing_comma(self) -> None:
+        assert parse_frequency_list("  100 ,  200,  ") == [100.0, 200.0]
+
+    def test_empty_string_yields_no_notches(self) -> None:
+        assert parse_frequency_list("") == []
+
+    def test_blank_string_yields_no_notches(self) -> None:
+        assert parse_frequency_list("   ") == []
+
+    def test_invalid_token_raises(self) -> None:
+        with pytest.raises(FilterConfigError, match="abc"):
+            parse_frequency_list("100, abc, 400")
