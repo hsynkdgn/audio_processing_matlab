@@ -36,6 +36,42 @@
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
 
+### Project-wide review round 2 — 2026-07-05
+- A full-project review after PHASE 5 found one serious leftover bug,
+  one latent crash, and a set of smaller gaps; all fixed:
+  1. **Failure-path button race (real bug)**: the PHASE 4 fix moved
+     control re-enabling to `QThread.finished` — but only on the success
+     path; `_on_process_failed` still re-enabled the button early,
+     leaving the exact same GC-destroys-live-QThread race open on every
+     failed run. Both paths now re-enable ONLY from `_on_thread_stopped`.
+  2. **deleteLater vs Python GC double-destruction (latent, intermittent
+     segfault)**: `start_worker` connected `thread.finished` to
+     `worker.deleteLater`/`thread.deleteLater` while MainWindow also
+     dropped its Python references on the same signal — two independent
+     destruction paths for the same C++ objects; a pending DeferredDelete
+     could fire against an already-collected object. Reproduced as a
+     ~1-in-5 segfault by the new failure-path test. Fixed by removing the
+     deleteLater connections entirely: lifetime is now owned solely by
+     Python, and `start_worker` gained an `on_stopped` callback
+     (connected to `QThread.finished`) as the sanctioned point to drop
+     references. Verified with 12 consecutive crash-free runs of the
+     previously-crashing file + 4 full-suite runs.
+  3. CI now also runs `ruff format --check` (format drift could
+     previously pass CI).
+  4. File dialog now remembers the last-used directory
+     (docs/manual_test_windows.md promised this; the code never did it).
+  5. Play/Stop playback buttons are disabled until a result exists and
+     during processing; stale play status icons reset on each new run.
+  6. tests/test_smoke.py now validates the full committed fixture set
+     (stereo WAV/MP4 + MP3 had drifted out of it).
+  7. .claude/hooks/post_tool_use_ruff.py runs `--unfixable F401`:
+     auto-removal of "unused" imports kept racing multi-edit changes
+     (import added in one edit, usage in the next) — 4 incidents this
+     session. F401 is still REPORTED by the hook and still fails CI.
+  8. Cosmetics: hover color literal → theme.PRIMARY_HOVER; QThread
+     imported from PySide6.QtCore directly; closeEvent typed (QCloseEvent).
+- Test results: 143 passed (4 new tests), ruff + format clean.
+
 ### PHASE 5 (packaging) — 2026-07-05
 - Done: replaced the ad-hoc inline pyinstaller command with a committed
   `heli_noise.spec` (entry point src/heli_noise/__main__.py; bundles the
