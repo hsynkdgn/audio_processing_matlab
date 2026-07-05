@@ -83,6 +83,9 @@ class TestProcessEndToEnd:
         assert len(window._before_canvas._axes.collections) >= 1
         assert len(window._after_canvas._axes.collections) >= 1
         assert window._process_button.isEnabled()
+        qtbot.waitUntil(lambda: window._progress_bar.value() == 100, timeout=2000)
+        # references are dropped once the QThread actually stops
+        qtbot.waitUntil(lambda: window._thread is None, timeout=2000)
 
     def test_empty_notch_frequencies_still_succeeds(self, qtbot, tmp_path: Path) -> None:
         window = MainWindow()
@@ -98,6 +101,29 @@ class TestProcessEndToEnd:
         qtbot.waitUntil(lambda: window._last_result is not None, timeout=5000)
 
         assert window._process_status.text() == "✓"
+
+
+class TestCloseDuringProcessing:
+    def test_close_while_processing_does_not_crash(self, qtbot, tmp_path: Path) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        source = tmp_path / "tone.mp4"
+        shutil.copy(TONE_MP4, source)
+        window._set_input_path(source)
+        window._start_edit.setText("00:00")
+        window._stop_edit.setText("00:01")
+
+        window._on_process_clicked()
+        assert window._thread is not None  # run is in flight
+
+        window.close()  # must wait for the worker, not crash
+
+        assert window._thread is None
+
+    def test_close_when_idle_does_not_crash(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.close()
 
 
 class TestPlayback:

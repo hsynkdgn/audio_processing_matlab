@@ -7,6 +7,7 @@ are caught here and converted into status icons + log messages, never
 into popups showing raw exception text.
 """
 
+import contextlib
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -98,7 +100,10 @@ class MainWindow(QMainWindow):
         row.addWidget(self._process_button)
         self._process_status = StatusIcon()
         row.addWidget(self._process_status)
-        row.addStretch(1)
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        row.addWidget(self._progress_bar, stretch=1)
         return row
 
     def _build_spectrogram_row(self) -> QHBoxLayout:
@@ -180,6 +185,7 @@ class MainWindow(QMainWindow):
 
         output_path = self._input_path.parent / f"{self._input_path.stem}_filtered.wav"
         self._process_status.set_idle()
+        self._progress_bar.setValue(0)
         self._log(strings.LOG_PROCESSING_STARTED)
         self._set_controls_enabled(False)
         self._thread, self._worker = start_worker(
@@ -191,7 +197,19 @@ class MainWindow(QMainWindow):
             output_path,
             on_finished=self._on_process_finished,
             on_failed=self._on_process_failed,
+            on_progress=self._progress_bar.setValue,
         )
+        # Drop our references only once the QThread has actually stopped;
+        # dropping them earlier (e.g. from the worker's finished handler,
+        # which fires while the thread is still spinning down) lets the
+        # garbage collector destroy a live QThread, which aborts the
+        # process. The deleteLater connections in start_worker only queue
+        # the C++ deletion, so this handler always runs first.
+        self._thread.finished.connect(self._on_thread_stopped)
+
+    def _on_thread_stopped(self) -> None:
+        self._thread = None
+        self._worker = None
 
     def _on_process_finished(self, result: ProcessResult) -> None:
         self._last_result = result
@@ -232,3 +250,22 @@ class MainWindow(QMainWindow):
             self._playback.stop()
         except PlaybackError as exc:
             self._log(strings.LOG_PLAYBACK_FAILED.format(error=exc))
+
+    # -- shutdown -----------------------------------------------------------
+
+    def closeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        """Wait for any in-flight processing and stop playback before closing.
+
+        The worker job (ffmpeg/scipy) is a blocking call that cannot be
+        interrupted mid-run; waiting bounds the close instead of letting
+        Qt destroy a live QThread (which crashes).
+        """
+        if self._thread is not None:
+            self._thread.quit()
+            self._thread.wait(15_000)
+            self._thread = None
+            self._worker = None
+        # closing anyway; there is no UI left to report a stop failure to
+        with contextlib.suppress(PlaybackError):
+            self._playback.stop()
+        super().closeEvent(event)
