@@ -8,8 +8,10 @@ Usage:
     python scripts/make_fixtures.py
 """
 
+import subprocess
 from pathlib import Path
 
+import imageio_ffmpeg
 import numpy as np
 import soundfile as sf
 
@@ -52,11 +54,53 @@ def noise_250hz_48k() -> None:
     _write("noise_250hz_48k.wav", x, sr)
 
 
+def _encode(source_wav: Path, target: Path, codec_args: list[str]) -> bool:
+    """Encode a WAV fixture into a compressed container via bundled ffmpeg.
+
+    Returns True on success, False if the encoder is unavailable in the
+    static ffmpeg build (the fixture is then skipped, not an error).
+    """
+    cmd = [
+        imageio_ffmpeg.get_ffmpeg_exe(),
+        "-hide_banner",
+        "-y",
+        "-i",
+        str(source_wav),
+        *codec_args,
+        str(target),
+    ]
+    result = subprocess.run(
+        cmd,
+        shell=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0 or not target.is_file():
+        print(
+            f"SKIPPED {target.name}: encoder unavailable or failed "
+            f"({result.stderr.strip().splitlines()[-1] if result.stderr else '?'})"
+        )
+        return False
+    print(f"wrote {target.name}: {target.stat().st_size} bytes")
+    return True
+
+
+def compressed_fixtures() -> None:
+    """1 s 440 Hz tone as MP4 (AAC) and MP3 — real extraction test inputs."""
+    source = FIXTURES_DIR / "tone_440hz_48k.wav"
+    _encode(source, FIXTURES_DIR / "tone_440hz_48k.mp4", ["-acodec", "aac", "-b:a", "128k"])
+    _encode(source, FIXTURES_DIR / "tone_440hz_48k.mp3", ["-acodec", "libmp3lame", "-b:a", "128k"])
+
+
 def main() -> None:
     FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
     tone_440hz_48k()
     mix_100_400_1000hz_44k1()
     noise_250hz_48k()
+    compressed_fixtures()
 
 
 if __name__ == "__main__":
