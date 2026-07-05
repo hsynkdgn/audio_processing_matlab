@@ -2,7 +2,12 @@
 
 ## Status Summary
 - Last update: 2026-07-05
-- Active phase: PHASE 4 complete — next up PHASE 5 (packaging)
+- Active phase: ALL 5 PHASES COMPLETE from the cloud-sandbox side. The
+  one remaining item in the entire project is Windows-only and cannot
+  be done from this environment by design: running docs/manual_test_windows.md
+  on a real Windows 10/11 machine (playback, file dialogs, the packaged
+  exe itself). Everything else — core, DSP, UI, integration, and the
+  packaging pipeline — is implemented, tested, and committed.
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -10,8 +15,12 @@
     docs/manual_test_windows.md). It stays in requirements.txt for the
     Windows target; sandbox code/tests must never import it at module
     scope outside the playback adapter.
-  - build-windows.yml is a skeleton: the PyInstaller spec/options are
-    TODOs to be completed in PHASE 5.
+  - The packaged .exe itself is UNVERIFIED on real Windows — the sandbox
+    can only sanity-build the PyInstaller spec into a throwaway Linux
+    ELF (proves Analysis/hidden-imports/data-collection all resolve; see
+    PHASE 5 record). The actual build-windows.yml run on windows-latest
+    has not been observed by this session. First person to run it should
+    download the artifact and work through docs/manual_test_windows.md.
   - Sandbox Python is 3.11.15; CI and packaging use 3.12 (the app target).
 
 ## Phase List
@@ -19,12 +28,49 @@
 - [x] PHASE 2: core/ — DSP (STFT, spectrogram matrix, notch chain, normalize) + tests
 - [x] PHASE 3: ui/ — main window, all panels, status icons, worker threads (headless-testable)
 - [x] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
-- [ ] PHASE 5: packaging — build-windows.yml completed, exe artifact verified on Windows 10, README
+- [x] PHASE 5: packaging — build-windows.yml completed, README (exe artifact verification on
+      real Windows 10 is the one item no cloud session can perform — see Known open issues)
 
 ## Phase Records
 (when each phase completes: what was done, which files, test results,
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
+
+### PHASE 5 (packaging) — 2026-07-05
+- Done: replaced the ad-hoc inline pyinstaller command with a committed
+  `heli_noise.spec` (entry point src/heli_noise/__main__.py; bundles the
+  imageio-ffmpeg binary via `collect_data_files("imageio_ffmpeg")`;
+  `matplotlib.backends.backend_qtagg` hidden import since matplotlib
+  picks its Qt backend dynamically; single-file, windowed, named
+  "HeliNoiseAnalyzer"). `.github/workflows/build-windows.yml` now just
+  runs `pyinstaller --clean --noconfirm heli_noise.spec`; the stale
+  TODO comments describing options the spec now already implements were
+  removed (an icon/version-resource TODO remains — cosmetic, not
+  blocking a working build).
+- Sandbox sanity check (pyinstaller installed ad hoc for this, NOT added
+  to requirements.txt — matches the existing convention of installing it
+  separately in the workflow): built the spec in the Linux sandbox. This
+  produces a throwaway Linux ELF, not a usable artifact, but it proves
+  the spec itself is correct — Analysis resolved all imports, the
+  ffmpeg binary was actually embedded (confirmed via `strings` on the
+  output binary: `imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-...`
+  present), and the built executable launched cleanly under
+  `QT_QPA_PLATFORM=offscreen` for 5s with no traceback before being
+  killed by the test harness. Build artifacts (build/, dist/) were
+  deleted after the check; both are already gitignored.
+- Test results: 139 passed headless, ruff clean (unchanged from PHASE 4
+  — this phase touched no application code, only packaging config).
+- Notes for next session / whoever has Windows access: this is the
+  LAST remaining task in the entire project. Trigger build-windows.yml
+  (workflow_dispatch or push a `v*` tag), download the
+  HeliNoiseAnalyzer-windows artifact, and work through EVERY checkbox in
+  docs/manual_test_windows.md. If the exe fails to launch or ffmpeg
+  can't be found at runtime, the first things to check are: (1) whether
+  imageio_ffmpeg's Windows wheel actually bundled a Windows ffmpeg.exe
+  binary at spec-build time (rerun `pip show -f imageio-ffmpeg` on the
+  Windows runner to confirm), and (2) PySide6 platform plugin bundling
+  (PyInstaller has a built-in PySide6 hook, but if the window fails to
+  show, try `--debug=imports` for a first diagnosis).
 
 ### PHASE 4 (integration) — 2026-07-05
 - Done: broader end-to-end scenario coverage through the real MainWindow
