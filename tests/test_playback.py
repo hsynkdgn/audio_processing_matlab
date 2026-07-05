@@ -42,6 +42,20 @@ def test_play_starts_playback(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0][1] == 48_000
 
 
+def test_play_clips_out_of_range_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The un-normalized 'before' signal can exceed [-1, 1] after DC removal."""
+    fake_sd = _install_fake_sounddevice(monkeypatch)
+    calls = []
+    fake_sd.play = lambda data, sample_rate: calls.append(data)
+
+    adapter = PlaybackAdapter()
+    adapter.play(np.array([1.3, -1.7, 0.5]), 48_000)
+
+    played = calls[0]
+    assert np.max(np.abs(played)) <= 1.0
+    assert played[2] == pytest.approx(0.5)
+
+
 def test_play_wraps_portaudio_error(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_sd = _install_fake_sounddevice(monkeypatch)
 
