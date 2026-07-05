@@ -24,8 +24,12 @@ def main() -> int:
     if not path.is_file():
         return 0
 
+    # F401 (unused import) is reported but NOT auto-fixed: multi-edit
+    # changes often add an import in one edit and its usage in the next,
+    # and auto-removing the "unused" import between the two edits breaks
+    # the file. CI's plain `ruff check` still fails on real unused imports.
     for cmd in (
-        [sys.executable, "-m", "ruff", "check", "--fix", str(path)],
+        [sys.executable, "-m", "ruff", "check", "--fix", "--unfixable", "F401", str(path)],
         [sys.executable, "-m", "ruff", "format", str(path)],
     ):
         result = subprocess.run(
