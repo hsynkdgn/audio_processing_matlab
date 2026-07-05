@@ -2,7 +2,7 @@
 
 ## Status Summary
 - Last update: 2026-07-05
-- Active phase: PHASE 2 complete — next up PHASE 3 (ui/)
+- Active phase: PHASE 3 complete — next up PHASE 4 (integration)
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -17,7 +17,7 @@
 ## Phase List
 - [x] PHASE 1: core/ — media handling (ffmpeg wrapper, time cutting, WAV extraction) + tests
 - [x] PHASE 2: core/ — DSP (STFT, spectrogram matrix, notch chain, normalize) + tests
-- [ ] PHASE 3: ui/ — main window, all panels, status icons, worker threads (headless-testable)
+- [x] PHASE 3: ui/ — main window, all panels, status icons, worker threads (headless-testable)
 - [ ] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
 - [ ] PHASE 5: packaging — build-windows.yml completed, exe artifact verified on Windows 10, README
 
@@ -25,6 +25,50 @@
 (when each phase completes: what was done, which files, test results,
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
+
+### PHASE 3 (ui/) — 2026-07-05
+- Done: full GUI layer per qt-ui-conventions skill, plus a thin
+  core/pipeline.py added as a prerequisite (composes media.py + dsp.py
+  into one extract->DC-remove->before-spectrogram->notch->normalize->
+  after-spectrogram->save call, fully Qt-independent and tested with the
+  MP4 fixture — this is the "orchestrator" flagged as a maybe in the
+  PHASE 2 notes; it turned out to need its own tests, so it landed here).
+- Files: src/heli_noise/core/pipeline.py (ProcessResult, process_recording),
+  src/heli_noise/core/dsp.py gained parse_frequency_list (comma-separated
+  notch input parsing, reused by the UI); src/heli_noise/ui/theme.py
+  (cockpit palette + QSS), ui/strings.py (all user-facing strings),
+  ui/status_icon.py (StatusIcon idle/ok/error), ui/worker.py (Worker +
+  start_worker QThread pattern, auto-injects progress_cb into jobs that
+  accept it), ui/spectrogram_canvas.py (matplotlib backend_qtagg
+  embedding), ui/playback.py (PlaybackAdapter, lazy sounddevice import so
+  module import never fails headless; PlaybackError wraps
+  PortAudioError/OSError), ui/main_window.py (assembles everything:
+  file picker, time/notch inputs, process button, before/after
+  spectrogram canvases, play/stop buttons, log panel), src/heli_noise/
+  __main__.py (QApplication entry point for `python -m heli_noise`,
+  unblocks the build-windows.yml PyInstaller step).
+- Test results: 118 passed total (78 from PHASE 1+2 + 40 new), headless,
+  ruff clean. MainWindow tests run the REAL pipeline against the
+  committed MP4 fixture (not mocked) including a full click-through
+  producing an actual output WAV; playback tests prove the app degrades
+  gracefully to a red status icon when sounddevice/PortAudio is
+  unavailable (the sandbox's actual condition), and mock sounddevice to
+  verify PlaybackAdapter's own success/failure logic. Manual sanity check
+  via MainWindow with a "Hüseyin Yeni Klasör/uçuş kaydı 1.mp4" path
+  (spaces + non-ASCII) confirmed end-to-end.
+- Bug caught while wiring the worker (fixed before commit): a test that
+  emitted `worker.progress` manually from the test thread raced against
+  the job finishing; fixed by having Worker.run() auto-inject
+  `progress_cb=self.progress.emit` into jobs whose signature accepts it
+  (matching the qt-ui-conventions skill's prescribed pattern), so
+  progress is reported synchronously from inside the job itself.
+- Notes for next session: PHASE 4 is end-to-end integration (real GoPro-
+  shaped scenarios, more error-scenario coverage, docs/manual_test_windows.md
+  execution planning) — the pieces are now all wired, so PHASE 4 is mostly
+  about breadth of scenario coverage and polish, not new architecture.
+  PHASE 5 (packaging) still needs the real PyInstaller spec; __main__.py
+  now exists so build-windows.yml's placeholder command should at least
+  run (untested here — Windows-only, see docs/manual_test_windows.md).
 
 ### PHASE 2 (core DSP) — 2026-07-05
 - Done: GUI-independent DSP primitives per dsp-pipeline skill rules.
