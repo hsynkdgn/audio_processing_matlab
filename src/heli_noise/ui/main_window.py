@@ -199,17 +199,25 @@ class MainWindow(QMainWindow):
             on_failed=self._on_process_failed,
             on_progress=self._progress_bar.setValue,
         )
-        # Drop our references only once the QThread has actually stopped;
-        # dropping them earlier (e.g. from the worker's finished handler,
-        # which fires while the thread is still spinning down) lets the
-        # garbage collector destroy a live QThread, which aborts the
-        # process. The deleteLater connections in start_worker only queue
-        # the C++ deletion, so this handler always runs first.
+        # Drop our references AND re-enable controls only once the QThread
+        # has actually stopped, not when the worker's finished/failed
+        # signal fires (which happens while the thread is still spinning
+        # down). Two hazards this closes at once:
+        #  1. dropping the reference early lets the garbage collector
+        #     destroy a still-running QThread (hard abort);
+        #  2. re-enabling the button early lets a real user start a
+        #     second run while the first thread hasn't fully stopped,
+        #     so the *new* thread gets assigned to self._thread and the
+        #     *old* thread's late `finished` signal would then null out
+        #     the reference to the new, still-running thread.
+        # Keeping the button disabled until thread.finished makes that
+        # overlap structurally impossible instead of guarding against it.
         self._thread.finished.connect(self._on_thread_stopped)
 
     def _on_thread_stopped(self) -> None:
         self._thread = None
         self._worker = None
+        self._set_controls_enabled(True)
 
     def _on_process_finished(self, result: ProcessResult) -> None:
         self._last_result = result
@@ -217,7 +225,6 @@ class MainWindow(QMainWindow):
         self._log(strings.LOG_PROCESSING_DONE.format(output_path=result.output_path))
         self._before_canvas.show_spectrogram(result.before_spectrogram)
         self._after_canvas.show_spectrogram(result.after_spectrogram)
-        self._set_controls_enabled(True)
 
     def _on_process_failed(self, message: str) -> None:
         self._process_status.set_error(message)
