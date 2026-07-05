@@ -1,0 +1,49 @@
+name: Build Windows exe
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # TODO (PHASE 5 — packaging): replace this ad-hoc command with a
+      # committed heli-noise.spec file once the application exists:
+      #   - entry point: src/heli_noise/__main__.py
+      #   - --collect-binaries imageio_ffmpeg  (bundle the ffmpeg exe;
+      #     verify imageio_ffmpeg.get_ffmpeg_exe() works from the frozen app)
+      #   - hidden imports for PySide6 plugins + matplotlib backend_qtagg
+      #   - application icon, version resource, name "HeliNoiseAnalyzer"
+      #   - exclude unused Qt modules to shrink the exe
+      - name: Build single-file windowed exe (skeleton)
+        run: >
+          pyinstaller
+          --onefile
+          --windowed
+          --name HeliNoiseAnalyzer
+          --collect-binaries imageio_ffmpeg
+          --paths src
+          src/heli_noise/__main__.py
+        # NOTE: this step will fail until src/heli_noise/__main__.py exists
+        # (PHASE 3+). The workflow is manual-trigger only, so that is fine.
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliNoiseAnalyzer-windows
+          path: dist/HeliNoiseAnalyzer.exe

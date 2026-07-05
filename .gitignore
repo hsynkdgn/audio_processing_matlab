@@ -1,0 +1,34 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python byte-code / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# PyInstaller
+*.spec.bak
+*.manifest
+
+# Coverage
+.coverage
+htmlcov/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Local-only settings (project .claude/settings.json IS committed)
+.claude/settings.local.json
