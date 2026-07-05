@@ -82,10 +82,12 @@ class TestProcessEndToEnd:
         assert (tmp_path / "tone_filtered.wav").is_file()
         assert len(window._before_canvas._axes.collections) >= 1
         assert len(window._after_canvas._axes.collections) >= 1
-        assert window._process_button.isEnabled()
         qtbot.waitUntil(lambda: window._progress_bar.value() == 100, timeout=2000)
-        # references are dropped once the QThread actually stops
+        # The button only re-enables once the QThread has actually
+        # stopped (not merely when the worker's finished signal fires) —
+        # see main_window._on_thread_stopped for why that gap matters.
         qtbot.waitUntil(lambda: window._thread is None, timeout=2000)
+        assert window._process_button.isEnabled()
 
     def test_empty_notch_frequencies_still_succeeds(self, qtbot, tmp_path: Path) -> None:
         window = MainWindow()
