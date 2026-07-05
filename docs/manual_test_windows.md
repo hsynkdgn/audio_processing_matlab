@@ -34,6 +34,10 @@ playback, file dialogs, or packaging.
       (verify nothing on PATH is used).
 - [ ] Real GoPro MP4 (long recording, AAC stereo 48 kHz) extracts and cuts
       correctly; cut boundaries match the requested hh:mm:ss times.
+- [ ] A GoPro 360 / multi-channel (ambisonic, e.g. 4.0) recording probes
+      and downmixes without error (channel-layout parsing was extended
+      for this in PHASE 4; only a plain stereo fixture was testable in
+      the sandbox).
 - [ ] No console window flashes during conversion.
 
 ## Packaged exe (PyInstaller, PHASE 5)
@@ -51,6 +55,20 @@ playback, file dialogs, or packaging.
       cyan readouts, green/red status icons) on light AND dark Windows themes.
 - [ ] Long operations show progress and the window stays responsive
       (can move/resize during conversion of a large MP4).
+- [ ] Progress bar advances visibly (0→100) across the extract/analyze/
+      filter/normalize/save stages instead of jumping straight to 100.
+- [ ] Closing the window WHILE a conversion is running: the window waits
+      briefly and closes cleanly (no crash, no zombie ffmpeg process left
+      in Task Manager) — verifies the sandbox-tested close-during-
+      processing behavior holds on real Windows threading too.
+- [ ] Clicking "Process" again immediately after a run finishes (rapid
+      double-click) starts a fresh run cleanly; the button stays disabled
+      for the full duration of the previous run, not just until the
+      status icon updates (a real race here was found and fixed in the
+      sandbox — see checkpoints.md PHASE 4 notes).
+- [ ] Processing the same input twice in a row (e.g. different notch
+      frequencies) correctly overwrites `<name>_filtered.wav` with the
+      new result.
 
 Record results (date, machine, Windows version, pass/fail notes) at the
 bottom of this file when a run is completed.
