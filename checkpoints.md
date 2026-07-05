@@ -2,7 +2,7 @@
 
 ## Status Summary
 - Last update: 2026-07-05
-- Active phase: PHASE 1 complete — next up PHASE 2 (core DSP)
+- Active phase: PHASE 2 complete — next up PHASE 3 (ui/)
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -16,7 +16,7 @@
 
 ## Phase List
 - [x] PHASE 1: core/ — media handling (ffmpeg wrapper, time cutting, WAV extraction) + tests
-- [ ] PHASE 2: core/ — DSP (STFT, spectrogram matrix, notch chain, normalize) + tests
+- [x] PHASE 2: core/ — DSP (STFT, spectrogram matrix, notch chain, normalize) + tests
 - [ ] PHASE 3: ui/ — main window, all panels, status icons, worker threads (headless-testable)
 - [ ] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
 - [ ] PHASE 5: packaging — build-windows.yml completed, exe artifact verified on Windows 10, README
@@ -25,6 +25,29 @@
 (when each phase completes: what was done, which files, test results,
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
+
+### PHASE 2 (core DSP) — 2026-07-05
+- Done: GUI-independent DSP primitives per dsp-pipeline skill rules.
+- Files: src/heli_noise/core/dsp.py (SpectrogramResult, compute_spectrogram,
+  apply_notch, apply_notch_chain, remove_dc_offset, normalize_peak),
+  tests/test_dsp.py (31 tests).
+- Bug caught by tests (fixed before commit): compute_spectrogram crashed on
+  signals shorter than nperseg — scipy auto-clamps nperseg to the signal
+  length internally but leaves noverlap untouched, tripping scipy's own
+  "noverlap must be less than nperseg" error. Fixed by clamping both
+  nperseg and noverlap ourselves before calling stft().
+- Test results: 78 passed total (47 from PHASE 1 + 31 new), headless,
+  ruff clean. Covers: Nyquist rejection (incl. 23 kHz valid @48k / invalid
+  @44.1k), zero-phase filtfilt (never lfilter) via a centered-impulse
+  test, exact-duplicate dedup, close-frequency overlapping notches,
+  short-segment spectrogram, silence (-inf guard), DC offset removal,
+  all-zero normalize (no div-by-zero).
+- Notes for next session: PHASE 3 (ui/) wires media.py + dsp.py behind
+  QThread workers (qt-ui-conventions skill); no orchestrating "run full
+  pipeline" function exists yet in core — that composition happens in
+  PHASE 3/4 where cut -> load_wav -> remove_dc_offset -> notch chain ->
+  normalize_peak -> save_wav is assembled, likely in the UI worker or a
+  thin core/pipeline.py if it turns out to need its own tests.
 
 ### PHASE 1 (core media handling) — 2026-07-05
 - Done: GUI-independent media layer per ffmpeg-media skill rules.
