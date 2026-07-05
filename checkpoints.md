@@ -2,7 +2,7 @@
 
 ## Status Summary
 - Last update: 2026-07-05
-- Active phase: infrastructure complete — next session starts PHASE 1
+- Active phase: PHASE 1 complete — next up PHASE 2 (core DSP)
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -15,7 +15,7 @@
   - Sandbox Python is 3.11.15; CI and packaging use 3.12 (the app target).
 
 ## Phase List
-- [ ] PHASE 1: core/ — media handling (ffmpeg wrapper, time cutting, WAV extraction) + tests
+- [x] PHASE 1: core/ — media handling (ffmpeg wrapper, time cutting, WAV extraction) + tests
 - [ ] PHASE 2: core/ — DSP (STFT, spectrogram matrix, notch chain, normalize) + tests
 - [ ] PHASE 3: ui/ — main window, all panels, status icons, worker threads (headless-testable)
 - [ ] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
@@ -25,6 +25,24 @@
 (when each phase completes: what was done, which files, test results,
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
+
+### PHASE 1 (core media handling) — 2026-07-05
+- Done: GUI-independent media layer per ffmpeg-media skill rules.
+- Files: src/heli_noise/core/exceptions.py (HeliNoiseError + MediaDecodeError,
+  InvalidTimeRangeError, FilterConfigError), src/heli_noise/core/timefmt.py
+  (parse_time/format_seconds — the single shared hh:mm:ss helper),
+  src/heli_noise/core/media.py (MediaInfo, probe_media via ffmpeg -i stderr
+  parsing, extract_audio with -ss-before-i + -t, load_wav with stereo
+  averaging, save_wav PCM_16), scripts/make_fixtures.py extended with
+  tone_440hz_48k.mp4 (AAC) + .mp3 fixtures (both encoders present in the
+  imageio-ffmpeg static build), tests/test_media.py + tests/test_timefmt.py.
+- Test results: 47 passed (headless), ruff clean. Windows-critical path
+  test (spaces + non-ASCII, "Hüseyin Yeni Klasör/uçuş kaydı 1.mp4") passes.
+  FFT content check confirms the extracted cut is the 440 Hz tone.
+- Notes for next session: PHASE 2 implements core DSP (STFT spectrogram
+  matrix, notch chain, normalize) per .claude/skills/dsp-pipeline/SKILL.md;
+  reuse load_wav/save_wav and FilterConfigError from this phase. Playback
+  adapter stays out of core (PHASE 3/4, mocked in sandbox).
 
 ### PHASE 0 (infrastructure) — 2026-07-05
 - Done: full project scaffolding on branch
