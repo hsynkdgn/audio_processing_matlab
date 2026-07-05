@@ -7,9 +7,12 @@ are caught here and converted into status icons + log messages, never
 into popups showing raw exception text.
 """
 
+import contextlib
 from pathlib import Path
 
 import numpy as np
+from PySide6.QtCore import QThread
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
@@ -18,6 +21,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -31,7 +35,7 @@ from heli_noise.ui import strings, theme
 from heli_noise.ui.playback import PlaybackAdapter, PlaybackError
 from heli_noise.ui.spectrogram_canvas import SpectrogramCanvas
 from heli_noise.ui.status_icon import StatusIcon
-from heli_noise.ui.worker import QThread, Worker, start_worker
+from heli_noise.ui.worker import Worker, start_worker
 
 
 class MainWindow(QMainWindow):
@@ -43,12 +47,14 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(theme.build_stylesheet())
 
         self._input_path: Path | None = None
+        self._last_dir: str = ""
         self._last_result: ProcessResult | None = None
         self._playback = PlaybackAdapter()
         self._thread: QThread | None = None
         self._worker: Worker | None = None
 
         self._build_ui()
+        self._update_playback_buttons()
 
     # -- construction ---------------------------------------------------
 
@@ -98,7 +104,10 @@ class MainWindow(QMainWindow):
         row.addWidget(self._process_button)
         self._process_status = StatusIcon()
         row.addWidget(self._process_status)
-        row.addStretch(1)
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        row.addWidget(self._progress_bar, stretch=1)
         return row
 
     def _build_spectrogram_row(self) -> QHBoxLayout:
@@ -112,21 +121,21 @@ class MainWindow(QMainWindow):
     def _build_playback_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
 
-        play_before_button = QPushButton(strings.BUTTON_PLAY_BEFORE)
-        play_before_button.clicked.connect(self._on_play_before_clicked)
-        row.addWidget(play_before_button)
+        self._play_before_button = QPushButton(strings.BUTTON_PLAY_BEFORE)
+        self._play_before_button.clicked.connect(self._on_play_before_clicked)
+        row.addWidget(self._play_before_button)
         self._play_before_status = StatusIcon()
         row.addWidget(self._play_before_status)
 
-        play_after_button = QPushButton(strings.BUTTON_PLAY_AFTER)
-        play_after_button.clicked.connect(self._on_play_after_clicked)
-        row.addWidget(play_after_button)
+        self._play_after_button = QPushButton(strings.BUTTON_PLAY_AFTER)
+        self._play_after_button.clicked.connect(self._on_play_after_clicked)
+        row.addWidget(self._play_after_button)
         self._play_after_status = StatusIcon()
         row.addWidget(self._play_after_status)
 
-        stop_button = QPushButton(strings.BUTTON_STOP_PLAYBACK)
-        stop_button.clicked.connect(self._on_stop_playback_clicked)
-        row.addWidget(stop_button)
+        self._stop_playback_button = QPushButton(strings.BUTTON_STOP_PLAYBACK)
+        self._stop_playback_button.clicked.connect(self._on_stop_playback_clicked)
+        row.addWidget(self._stop_playback_button)
 
         row.addStretch(1)
         return row
@@ -139,16 +148,25 @@ class MainWindow(QMainWindow):
     def _set_input_path(self, path: Path) -> None:
         """Apply a chosen input path (shared by the browse dialog and tests)."""
         self._input_path = path
+        self._last_dir = str(path.parent)
         self._file_edit.setText(str(path))
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         self._process_button.setEnabled(enabled)
+        self._update_playback_buttons(processing=not enabled)
+
+    def _update_playback_buttons(self, processing: bool = False) -> None:
+        """Playback needs a finished result and no run in flight."""
+        playable = self._last_result is not None and not processing
+        self._play_before_button.setEnabled(playable)
+        self._play_after_button.setEnabled(playable)
+        self._stop_playback_button.setEnabled(playable)
 
     # -- file selection ---------------------------------------------------
 
     def _on_browse_clicked(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(
-            self, strings.FILE_DIALOG_TITLE, "", strings.FILE_DIALOG_FILTER
+            self, strings.FILE_DIALOG_TITLE, self._last_dir, strings.FILE_DIALOG_FILTER
         )
         if file_name:
             self._set_input_path(Path(file_name))
@@ -180,8 +198,19 @@ class MainWindow(QMainWindow):
 
         output_path = self._input_path.parent / f"{self._input_path.stem}_filtered.wav"
         self._process_status.set_idle()
+        self._play_before_status.set_idle()
+        self._play_after_status.set_idle()
+        self._progress_bar.setValue(0)
         self._log(strings.LOG_PROCESSING_STARTED)
         self._set_controls_enabled(False)
+        # on_stopped (QThread.finished) is the ONLY place references are
+        # dropped and controls re-enabled — never from the worker's
+        # finished/failed handlers, which fire while the thread is still
+        # spinning down. Dropping earlier lets the GC destroy a live
+        # QThread (hard abort); re-enabling earlier lets a second run
+        # start while the first thread's late `finished` signal can
+        # still null out the new run's references. Both were real,
+        # sandbox-reproduced crashes.
         self._thread, self._worker = start_worker(
             process_recording,
             self._input_path,
@@ -191,7 +220,14 @@ class MainWindow(QMainWindow):
             output_path,
             on_finished=self._on_process_finished,
             on_failed=self._on_process_failed,
+            on_progress=self._progress_bar.setValue,
+            on_stopped=self._on_thread_stopped,
         )
+
+    def _on_thread_stopped(self) -> None:
+        self._thread = None
+        self._worker = None
+        self._set_controls_enabled(True)
 
     def _on_process_finished(self, result: ProcessResult) -> None:
         self._last_result = result
@@ -199,12 +235,10 @@ class MainWindow(QMainWindow):
         self._log(strings.LOG_PROCESSING_DONE.format(output_path=result.output_path))
         self._before_canvas.show_spectrogram(result.before_spectrogram)
         self._after_canvas.show_spectrogram(result.after_spectrogram)
-        self._set_controls_enabled(True)
 
     def _on_process_failed(self, message: str) -> None:
         self._process_status.set_error(message)
         self._log(strings.LOG_PROCESSING_FAILED.format(error=message))
-        self._set_controls_enabled(True)
 
     # -- playback ---------------------------------------------------------
 
@@ -232,3 +266,22 @@ class MainWindow(QMainWindow):
             self._playback.stop()
         except PlaybackError as exc:
             self._log(strings.LOG_PLAYBACK_FAILED.format(error=exc))
+
+    # -- shutdown -----------------------------------------------------------
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt naming)
+        """Wait for any in-flight processing and stop playback before closing.
+
+        The worker job (ffmpeg/scipy) is a blocking call that cannot be
+        interrupted mid-run; waiting bounds the close instead of letting
+        Qt destroy a live QThread (which crashes).
+        """
+        if self._thread is not None:
+            self._thread.quit()
+            self._thread.wait(15_000)
+            self._thread = None
+            self._worker = None
+        # closing anyway; there is no UI left to report a stop failure to
+        with contextlib.suppress(PlaybackError):
+            self._playback.stop()
+        super().closeEvent(event)

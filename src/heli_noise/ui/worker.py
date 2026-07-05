@@ -53,13 +53,25 @@ def start_worker(
     on_finished: Callable[[Any], None] | None = None,
     on_failed: Callable[[str], None] | None = None,
     on_progress: Callable[[int], None] | None = None,
+    on_stopped: Callable[[], None] | None = None,
     **kwargs: Any,
 ) -> tuple[QThread, Worker]:
     """Run ``job(*args, **kwargs)`` on a background QThread.
 
-    The caller MUST keep the returned ``(thread, worker)`` tuple alive
-    (e.g. as instance attributes) until the operation completes, or
-    Python's garbage collector will kill the thread mid-run.
+    Object lifetime is owned by PYTHON, deliberately: there are no
+    ``deleteLater`` connections here. Mixing ``deleteLater`` with
+    Python-side reference drops gave the same QThread two independent
+    destruction paths, and the pending DeferredDelete event could fire
+    against an already-collected object (intermittent segfault, caught
+    by the test suite). Instead the contract is:
+
+    - The caller MUST keep the returned ``(thread, worker)`` pair alive
+      (e.g. as instance attributes) while the thread runs, or the
+      garbage collector will destroy a live QThread (hard abort).
+    - The caller drops those references from ``on_stopped`` (or later),
+      never earlier: ``on_stopped`` fires on ``QThread.finished``, i.e.
+      only once the thread has fully stopped, at which point garbage
+      collection of both objects is safe and deterministic.
 
     Args:
         job: The callable to run off the UI thread (typically a
@@ -68,6 +80,8 @@ def start_worker(
         on_finished: Connected to the worker's ``finished`` signal.
         on_failed: Connected to the worker's ``failed`` signal.
         on_progress: Connected to the worker's ``progress`` signal.
+        on_stopped: Connected to ``QThread.finished`` — the safe point
+            to drop references and re-enable UI controls.
         **kwargs: Keyword arguments forwarded to ``job``.
 
     Returns:
@@ -86,8 +100,8 @@ def start_worker(
         worker.failed.connect(on_failed)
     worker.finished.connect(thread.quit)
     worker.failed.connect(thread.quit)
-    thread.finished.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
+    if on_stopped is not None:
+        thread.finished.connect(on_stopped)
 
     thread.start()
     return thread, worker

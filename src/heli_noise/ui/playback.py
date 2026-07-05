@@ -31,8 +31,12 @@ class PlaybackAdapter:
     def play(self, data: np.ndarray, sample_rate: int) -> None:
         """Start playing a mono float signal through the default output device.
 
+        Input is clipped to [-1, 1] as a safety net: the un-normalized
+        "before" signal can slightly exceed the range after DC removal,
+        and out-of-range samples would distort at the device.
+
         Args:
-            data: 1-D float samples in [-1, 1].
+            data: 1-D float samples, nominally in [-1, 1].
             sample_rate: Sample rate in Hz.
 
         Raises:
@@ -40,8 +44,9 @@ class PlaybackAdapter:
                 backend refuses to start playback.
         """
         sd = self._import_sounddevice()
+        clipped = np.clip(np.asarray(data, dtype=np.float64), -1.0, 1.0)
         try:
-            sd.play(data, sample_rate)
+            sd.play(clipped, sample_rate)
         except sd.PortAudioError as exc:
             raise PlaybackError(f"Could not start playback: {exc}") from exc
         self._is_playing = True

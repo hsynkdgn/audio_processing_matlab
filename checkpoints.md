@@ -2,7 +2,12 @@
 
 ## Status Summary
 - Last update: 2026-07-05
-- Active phase: PHASE 3 complete — next up PHASE 4 (integration)
+- Active phase: ALL 5 PHASES COMPLETE from the cloud-sandbox side. The
+  one remaining item in the entire project is Windows-only and cannot
+  be done from this environment by design: running docs/manual_test_windows.md
+  on a real Windows 10/11 machine (playback, file dialogs, the packaged
+  exe itself). Everything else — core, DSP, UI, integration, and the
+  packaging pipeline — is implemented, tested, and committed.
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -10,21 +15,163 @@
     docs/manual_test_windows.md). It stays in requirements.txt for the
     Windows target; sandbox code/tests must never import it at module
     scope outside the playback adapter.
-  - build-windows.yml is a skeleton: the PyInstaller spec/options are
-    TODOs to be completed in PHASE 5.
+  - The packaged .exe itself is UNVERIFIED on real Windows — the sandbox
+    can only sanity-build the PyInstaller spec into a throwaway Linux
+    ELF (proves Analysis/hidden-imports/data-collection all resolve; see
+    PHASE 5 record). The actual build-windows.yml run on windows-latest
+    has not been observed by this session. First person to run it should
+    download the artifact and work through docs/manual_test_windows.md.
   - Sandbox Python is 3.11.15; CI and packaging use 3.12 (the app target).
 
 ## Phase List
 - [x] PHASE 1: core/ — media handling (ffmpeg wrapper, time cutting, WAV extraction) + tests
 - [x] PHASE 2: core/ — DSP (STFT, spectrogram matrix, notch chain, normalize) + tests
 - [x] PHASE 3: ui/ — main window, all panels, status icons, worker threads (headless-testable)
-- [ ] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
-- [ ] PHASE 5: packaging — build-windows.yml completed, exe artifact verified on Windows 10, README
+- [x] PHASE 4: integration — end-to-end flow, error scenarios, manual Windows test plan
+- [x] PHASE 5: packaging — build-windows.yml completed, README (exe artifact verification on
+      real Windows 10 is the one item no cloud session can perform — see Known open issues)
 
 ## Phase Records
 (when each phase completes: what was done, which files, test results,
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
+
+### Project-wide review round 2 — 2026-07-05
+- A full-project review after PHASE 5 found one serious leftover bug,
+  one latent crash, and a set of smaller gaps; all fixed:
+  1. **Failure-path button race (real bug)**: the PHASE 4 fix moved
+     control re-enabling to `QThread.finished` — but only on the success
+     path; `_on_process_failed` still re-enabled the button early,
+     leaving the exact same GC-destroys-live-QThread race open on every
+     failed run. Both paths now re-enable ONLY from `_on_thread_stopped`.
+  2. **deleteLater vs Python GC double-destruction (latent, intermittent
+     segfault)**: `start_worker` connected `thread.finished` to
+     `worker.deleteLater`/`thread.deleteLater` while MainWindow also
+     dropped its Python references on the same signal — two independent
+     destruction paths for the same C++ objects; a pending DeferredDelete
+     could fire against an already-collected object. Reproduced as a
+     ~1-in-5 segfault by the new failure-path test. Fixed by removing the
+     deleteLater connections entirely: lifetime is now owned solely by
+     Python, and `start_worker` gained an `on_stopped` callback
+     (connected to `QThread.finished`) as the sanctioned point to drop
+     references. Verified with 12 consecutive crash-free runs of the
+     previously-crashing file + 4 full-suite runs.
+  3. CI now also runs `ruff format --check` (format drift could
+     previously pass CI).
+  4. File dialog now remembers the last-used directory
+     (docs/manual_test_windows.md promised this; the code never did it).
+  5. Play/Stop playback buttons are disabled until a result exists and
+     during processing; stale play status icons reset on each new run.
+  6. tests/test_smoke.py now validates the full committed fixture set
+     (stereo WAV/MP4 + MP3 had drifted out of it).
+  7. .claude/hooks/post_tool_use_ruff.py runs `--unfixable F401`:
+     auto-removal of "unused" imports kept racing multi-edit changes
+     (import added in one edit, usage in the next) — 4 incidents this
+     session. F401 is still REPORTED by the hook and still fails CI.
+  8. Cosmetics: hover color literal → theme.PRIMARY_HOVER; QThread
+     imported from PySide6.QtCore directly; closeEvent typed (QCloseEvent).
+- Test results: 143 passed (4 new tests), ruff + format clean.
+
+### PHASE 5 (packaging) — 2026-07-05
+- Done: replaced the ad-hoc inline pyinstaller command with a committed
+  `heli_noise.spec` (entry point src/heli_noise/__main__.py; bundles the
+  imageio-ffmpeg binary via `collect_data_files("imageio_ffmpeg")`;
+  `matplotlib.backends.backend_qtagg` hidden import since matplotlib
+  picks its Qt backend dynamically; single-file, windowed, named
+  "HeliNoiseAnalyzer"). `.github/workflows/build-windows.yml` now just
+  runs `pyinstaller --clean --noconfirm heli_noise.spec`; the stale
+  TODO comments describing options the spec now already implements were
+  removed (an icon/version-resource TODO remains — cosmetic, not
+  blocking a working build).
+- Sandbox sanity check (pyinstaller installed ad hoc for this, NOT added
+  to requirements.txt — matches the existing convention of installing it
+  separately in the workflow): built the spec in the Linux sandbox. This
+  produces a throwaway Linux ELF, not a usable artifact, but it proves
+  the spec itself is correct — Analysis resolved all imports, the
+  ffmpeg binary was actually embedded (confirmed via `strings` on the
+  output binary: `imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-...`
+  present), and the built executable launched cleanly under
+  `QT_QPA_PLATFORM=offscreen` for 5s with no traceback before being
+  killed by the test harness. Build artifacts (build/, dist/) were
+  deleted after the check; both are already gitignored.
+- Test results: 139 passed headless, ruff clean (unchanged from PHASE 4
+  — this phase touched no application code, only packaging config).
+- Notes for next session / whoever has Windows access: this is the
+  LAST remaining task in the entire project. Trigger build-windows.yml
+  (workflow_dispatch or push a `v*` tag), download the
+  HeliNoiseAnalyzer-windows artifact, and work through EVERY checkbox in
+  docs/manual_test_windows.md. If the exe fails to launch or ffmpeg
+  can't be found at runtime, the first things to check are: (1) whether
+  imageio_ffmpeg's Windows wheel actually bundled a Windows ffmpeg.exe
+  binary at spec-build time (rerun `pip show -f imageio-ffmpeg` on the
+  Windows runner to confirm), and (2) PySide6 platform plugin bundling
+  (PyInstaller has a built-in PySide6 hook, but if the window fails to
+  show, try `--debug=imports` for a first diagnosis).
+
+### PHASE 4 (integration) — 2026-07-05
+- Done: broader end-to-end scenario coverage through the real MainWindow
+  (never mocked below the sounddevice boundary), plus a stereo GoPro-
+  shaped fixture.
+- Files: scripts/make_fixtures.py gained `stereo_tone_440hz_48k.{wav,mp4}`
+  (L=0.8·sin(440), R=0.4·sin(440) — makes the channel-averaging downmix
+  independently verifiable); tests/test_integration.py (6 tests): stereo
+  downmix end-to-end, concurrent-click guard, output-overwrite, a
+  realistic multi-frequency rotor-harmonic notch chain via the UI text
+  field, and two time-range boundary cases.
+- **Real bug found and fixed**: writing the "processing twice in a row"
+  test exposed a genuine race in MainWindow. The Process button was
+  re-enabled in `_on_process_finished`/`_on_process_failed` (on the
+  worker's `finished`/`failed` signal), but the QThread itself only
+  fully stops later, on `QThread.finished`. A user (or this test)
+  clicking Process again inside that gap creates a second QThread while
+  `self._thread` still pointed at the first, not-yet-stopped one; the
+  first thread's late `finished` signal then fired `_on_thread_stopped`,
+  which nulled `self._thread`/`self._worker` out from under the *second*,
+  still-running thread — dropping its last Python reference and letting
+  the GC destroy a live QThread (hard abort, reproduced in the sandbox).
+  Fixed by moving `_set_controls_enabled(True)` into `_on_thread_stopped`
+  itself, so the button now stays disabled for the QThread's entire
+  lifetime, not just until the worker signals completion — this makes
+  the overlap structurally impossible rather than papering over it.
+  `tests/test_main_window.py`'s end-to-end test was updated to check
+  `isEnabled()` only after `_thread is None`, matching the real invariant.
+- Also discovered (not a bug, a design boundary worth recording): the
+  time-input field only keeps 3 fractional digits (`core/timefmt.parse_time`),
+  so the finest cut a user can type is 1 ms — 48 samples at 48 kHz, always
+  comfortably above `filtfilt`'s ~9-sample padlen for a biquad notch.
+  The "signal too short to filter" `InvalidTimeRangeError` path is real
+  and unit-tested (`test_dsp.py`), but is unreachable through the UI's
+  own precision; `test_integration.py` asserts the smallest expressible
+  cut succeeds instead of asserting an unreachable error.
+- Docs: docs/manual_test_windows.md gained checks for the progress bar,
+  safe close-during-processing, rapid double-click, output overwrite,
+  and multi-channel/ambisonic GoPro 360 sources. README.md rewritten
+  from "infrastructure only" to describe actual usage.
+- Test results: 139 passed headless (repeated 3x with no flakiness),
+  ruff clean.
+- Notes for next session: PHASE 5 is packaging — the PyInstaller spec is
+  still a TODO in build-windows.yml.
+
+### PHASE 3 review fixes — 2026-07-05
+- A post-PHASE-3 code review produced 4 findings; all fixed same-day:
+  1. media.py audio-stream regex now tolerates surround/ambisonic channel
+     layouts ("5.1(side)", "quad", "4.0", "7.1"); parsing extracted into
+     pure `_parse_audio_stream()` unit-tested against real ffmpeg stderr
+     samples. Unknown layouts fall back to 2 channels instead of
+     rejecting the file (count is informational; extraction downmixes).
+  2. MainWindow.closeEvent now quits+waits the worker thread and stops
+     playback, so closing mid-processing no longer risks destroying a
+     live QThread.
+  3. process_recording gained progress_cb (0→100 stage reporting); the
+     UI shows it in a QProgressBar (worker auto-injects the signal).
+  4. PlaybackAdapter.play clips input to [-1, 1] (the un-normalized
+     "before" signal can slightly exceed the range after DC removal).
+- Crash caught while implementing fix 2: dropping the thread/worker
+  Python references from the worker's `finished` handler let the GC
+  destroy a still-running QThread → hard abort. References are now
+  dropped from `QThread.finished` (thread fully stopped) instead —
+  pattern to keep for any future worker wiring.
+- Test results after fixes: 133 passed headless, ruff clean.
 
 ### PHASE 3 (ui/) — 2026-07-05
 - Done: full GUI layer per qt-ui-conventions skill, plus a thin

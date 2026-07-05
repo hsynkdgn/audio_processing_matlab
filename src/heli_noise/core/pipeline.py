@@ -6,6 +6,7 @@ reused unchanged by the ui-layer worker thread.
 """
 
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,6 +57,7 @@ def process_recording(
     q: float = DEFAULT_Q,
     nperseg: int = DEFAULT_NPERSEG,
     noverlap: int = DEFAULT_NOVERLAP,
+    progress_cb: Callable[[int], None] | None = None,
 ) -> ProcessResult:
     """Cut, analyze, filter, normalize, and save a recording.
 
@@ -74,6 +76,9 @@ def process_recording(
         q: Quality factor applied to every notch.
         nperseg: STFT samples per segment (before/after spectrograms).
         noverlap: STFT overlap samples (before/after spectrograms).
+        progress_cb: Optional callable receiving coarse progress in
+            percent (monotonic, ends at 100). The ui worker injects its
+            progress signal here automatically.
 
     Returns:
         A :class:`ProcessResult` describing the outcome.
@@ -84,23 +89,35 @@ def process_recording(
             is invalid.
         FilterConfigError: If a notch frequency or STFT parameter is invalid.
     """
+
+    def _report(percent: int) -> None:
+        if progress_cb is not None:
+            progress_cb(percent)
+
+    _report(0)
     with tempfile.TemporaryDirectory() as tmp_dir:
         extracted_path = Path(tmp_dir) / "extracted.wav"
         extract_audio(input_path, start_s, stop_s, extracted_path)
+        _report(30)
         raw_signal, sample_rate = load_wav(extracted_path)
 
     original_signal = remove_dc_offset(raw_signal)
+    _report(40)
     before_spectrogram = compute_spectrogram(
         original_signal, sample_rate, nperseg=nperseg, noverlap=noverlap
     )
+    _report(55)
 
     filtered_signal = apply_notch_chain(original_signal, sample_rate, notch_frequencies, q=q)
+    _report(75)
     processed_signal = normalize_peak(filtered_signal)
     after_spectrogram = compute_spectrogram(
         processed_signal, sample_rate, nperseg=nperseg, noverlap=noverlap
     )
+    _report(90)
 
     save_wav(output_path, processed_signal, sample_rate)
+    _report(100)
 
     return ProcessResult(
         output_path=output_path,

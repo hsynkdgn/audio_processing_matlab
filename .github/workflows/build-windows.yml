@@ -22,25 +22,15 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      # TODO (PHASE 5 — packaging): replace this ad-hoc command with a
-      # committed heli-noise.spec file once the application exists:
-      #   - entry point: src/heli_noise/__main__.py
-      #   - --collect-binaries imageio_ffmpeg  (bundle the ffmpeg exe;
-      #     verify imageio_ffmpeg.get_ffmpeg_exe() works from the frozen app)
-      #   - hidden imports for PySide6 plugins + matplotlib backend_qtagg
-      #   - application icon, version resource, name "HeliNoiseAnalyzer"
-      #   - exclude unused Qt modules to shrink the exe
-      - name: Build single-file windowed exe (skeleton)
-        run: >
-          pyinstaller
-          --onefile
-          --windowed
-          --name HeliNoiseAnalyzer
-          --collect-binaries imageio_ffmpeg
-          --paths src
-          src/heli_noise/__main__.py
-        # NOTE: this step will fail until src/heli_noise/__main__.py exists
-        # (PHASE 3+). The workflow is manual-trigger only, so that is fine.
+      # Spec sanity-checked in the Linux sandbox (produces a Linux ELF
+      # there, not a usable artifact, but proves Analysis/hidden-imports/
+      # data collection all resolve). Real .exe verification is Windows-only
+      # (see docs/manual_test_windows.md); this workflow provides that build.
+      - name: Build single-file windowed exe
+        run: pyinstaller --clean --noconfirm heli_noise.spec
+
+      # TODO (future): application icon + version resource; exclude unused
+      # Qt modules to shrink the exe. Not required for a working build.
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

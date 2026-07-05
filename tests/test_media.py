@@ -14,6 +14,7 @@ import soundfile as sf
 from heli_noise.core.exceptions import InvalidTimeRangeError, MediaDecodeError
 from heli_noise.core.media import (
     MediaInfo,
+    _parse_audio_stream,
     extract_audio,
     load_wav,
     probe_media,
@@ -32,6 +33,30 @@ def _dominant_frequency(samples: np.ndarray, sample_rate: int) -> float:
     spectrum = np.abs(np.fft.rfft(samples))
     freqs = np.fft.rfftfreq(len(samples), d=1.0 / sample_rate)
     return float(freqs[np.argmax(spectrum)])
+
+
+class TestParseAudioStream:
+    """Real-world ffmpeg stderr shapes, parsed without running ffmpeg."""
+
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            ("Stream #0:1(und): Audio: aac (LC), 48000 Hz, stereo, fltp", (48_000, 2)),
+            ("Stream #0:0: Audio: pcm_s16le, 48000 Hz, mono, s16, 768 kb/s", (48_000, 1)),
+            ("Stream #0:1: Audio: aac (LC), 48000 Hz, 5.1(side), fltp", (48_000, 6)),
+            ("Stream #0:1: Audio: aac, 48000 Hz, 5.1, fltp", (48_000, 6)),
+            ("Stream #0:1: Audio: pcm_s16le, 48000 Hz, 4.0, s16", (48_000, 4)),
+            ("Stream #0:1: Audio: aac, 44100 Hz, 7.1(wide), fltp", (44_100, 8)),
+            ("Stream #0:1: Audio: pcm_s16le, 48000 Hz, quad, s16", (48_000, 4)),
+            ("Stream #0:1: Audio: pcm_s16le, 44100 Hz, 2 channels, s16", (44_100, 2)),
+            ("Stream #0:1: Audio: ambisonic, 48000 Hz, weird_layout, fltp", (48_000, 2)),
+        ],
+    )
+    def test_layouts(self, line: str, expected: tuple[int, int]) -> None:
+        assert _parse_audio_stream(line) == expected
+
+    def test_no_audio_stream_returns_none(self) -> None:
+        assert _parse_audio_stream("Stream #0:0: Video: h264, yuv420p, 1920x1080") is None
 
 
 class TestProbeMedia:

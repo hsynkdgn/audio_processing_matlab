@@ -20,7 +20,12 @@ import soundfile as sf
 from heli_noise.core.exceptions import InvalidTimeRangeError, MediaDecodeError
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d{2}):(\d{2})\.(\d+)")
-_AUDIO_STREAM_RE = re.compile(r"Audio:.*?(\d+)\s*Hz.*?(mono|stereo|\d+ channels)")
+# Sample rate is mandatory; the channel-layout field after it is optional
+# and free-form ("mono", "stereo", "5.1(side)", "quad", "2 channels", ...).
+_AUDIO_STREAM_RE = re.compile(r"Audio:.*?(\d+)\s*Hz(?:,\s*([^,\r\n]+))?")
+_CHANNELS_COUNT_RE = re.compile(r"^(\d+)\s+channels")
+_CHANNELS_LAYOUT_RE = re.compile(r"^(\d+)\.(\d+)")
+_KNOWN_LAYOUTS = {"mono": 1, "stereo": 2, "quad": 4, "downmix": 2}
 
 
 @dataclass(frozen=True)
@@ -67,13 +72,41 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _parse_channels(text: str) -> int:
-    """Convert an ffmpeg channel description to a channel count."""
-    if text == "mono":
-        return 1
-    if text == "stereo":
+def _parse_channels(layout: str | None) -> int:
+    """Convert an ffmpeg channel-layout description to a channel count.
+
+    Handles "mono"/"stereo"/"quad"/"downmix", "N channels", and surround
+    layouts like "5.1", "5.1(side)", "4.0", "7.1" (GoPro 360 recordings
+    can carry 4-channel ambisonic audio). Unknown or missing layouts fall
+    back to 2 — the count is informational only; extraction always
+    downmixes with ``-ac 1``, so a valid file must never be rejected
+    because its layout string is unrecognized.
+    """
+    if layout is None:
         return 2
-    return int(text.split()[0])
+    layout = layout.strip()
+    if layout in _KNOWN_LAYOUTS:
+        return _KNOWN_LAYOUTS[layout]
+    count_match = _CHANNELS_COUNT_RE.match(layout)
+    if count_match is not None:
+        return int(count_match.group(1))
+    surround_match = _CHANNELS_LAYOUT_RE.match(layout)
+    if surround_match is not None:
+        return int(surround_match.group(1)) + int(surround_match.group(2))
+    return 2
+
+
+def _parse_audio_stream(stderr: str) -> tuple[int, int] | None:
+    """Extract (sample_rate, channels) from ffmpeg ``-i`` stderr output.
+
+    Pure text parsing, separated from :func:`probe_media` so it can be
+    unit-tested against real-world ffmpeg stderr samples without running
+    ffmpeg. Returns None when no audio stream line is present.
+    """
+    match = _AUDIO_STREAM_RE.search(stderr)
+    if match is None:
+        return None
+    return int(match.group(1)), _parse_channels(match.group(2))
 
 
 def probe_media(path: Path) -> MediaInfo:
@@ -107,11 +140,10 @@ def probe_media(path: Path) -> MediaInfo:
     hours, minutes, seconds, fraction = duration_match.groups()
     duration = int(hours) * 3600 + int(minutes) * 60 + int(seconds) + float(f"0.{fraction}")
 
-    audio_match = _AUDIO_STREAM_RE.search(stderr)
-    if audio_match is None:
+    audio_stream = _parse_audio_stream(stderr)
+    if audio_stream is None:
         raise MediaDecodeError(f"No audio stream found in {path.name}")
-    sample_rate = int(audio_match.group(1))
-    channels = _parse_channels(audio_match.group(2))
+    sample_rate, channels = audio_stream
 
     return MediaInfo(duration=duration, sample_rate=sample_rate, channels=channels)
 

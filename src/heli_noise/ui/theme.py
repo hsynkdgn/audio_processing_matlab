@@ -6,6 +6,7 @@ color literal; import the constants (or the stylesheet) from here.
 
 BACKGROUND = "#0d1117"
 PRIMARY = "#ffb020"  # amber — main action buttons
+PRIMARY_HOVER = "#ffc350"  # lighter amber for button hover
 READOUT = "#29d6e8"  # cyan — numeric readouts, time displays
 STATUS_IDLE = "#6e7681"  # muted gray
 STATUS_OK = "#35d07f"  # green
@@ -34,7 +35,7 @@ def build_stylesheet() -> str:
             color: {STATUS_IDLE};
         }}
         QPushButton:hover:!disabled {{
-            background-color: #ffc350;
+            background-color: {PRIMARY_HOVER};
         }}
         QLineEdit, QPlainTextEdit, QListWidget {{
             background-color: #161b22;

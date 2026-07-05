@@ -72,3 +72,16 @@ class TestProcessRecording:
         with pytest.raises(MediaDecodeError):
             process_recording(tmp_path / "missing.mp4", 0.0, 1.0, [440.0], out)
         assert not out.exists()
+
+    def test_progress_is_monotonic_and_completes(self, tmp_path: Path) -> None:
+        values: list[int] = []
+        process_recording(
+            TONE_MP4, 0.0, 1.0, [440.0], tmp_path / "f.wav", progress_cb=values.append
+        )
+        assert values[0] == 0
+        assert values[-1] == 100
+        assert values == sorted(values)
+
+    def test_progress_cb_omitted_is_fine(self, tmp_path: Path) -> None:
+        result = process_recording(TONE_MP4, 0.0, 1.0, [], tmp_path / "f.wav")
+        assert result.output_path.is_file()

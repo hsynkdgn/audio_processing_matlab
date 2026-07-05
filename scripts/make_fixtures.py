@@ -54,6 +54,30 @@ def noise_250hz_48k() -> None:
     _write("noise_250hz_48k.wav", x, sr)
 
 
+def stereo_tone_440hz_48k() -> None:
+    """Stereo 440 Hz tone, L/R at different amplitudes (0.8/0.4), 1.0 s @ 48 kHz.
+
+    Exercises the channel-averaging downmix end-to-end: a GoPro-shaped
+    stereo AAC source should extract to a mono WAV whose amplitude sits
+    between the two channels' amplitudes.
+    """
+    sr = 48_000
+    t = np.arange(int(1.0 * sr)) / sr
+    left = 0.8 * np.sin(2 * np.pi * 440.0 * t)
+    right = 0.4 * np.sin(2 * np.pi * 440.0 * t)
+    stereo = np.column_stack([left, right]).astype(np.float64)
+    wav_path = FIXTURES_DIR / "stereo_tone_440hz_48k.wav"
+    sf.write(str(wav_path), stereo, sr, subtype="PCM_16")
+    info = sf.info(str(wav_path))
+    print(
+        f"wrote {wav_path.name}: {info.frames} frames @ {info.samplerate} Hz, "
+        f"{info.channels}ch, {info.subtype}"
+    )
+    _encode(
+        wav_path, FIXTURES_DIR / "stereo_tone_440hz_48k.mp4", ["-acodec", "aac", "-b:a", "128k"]
+    )
+
+
 def _encode(source_wav: Path, target: Path, codec_args: list[str]) -> bool:
     """Encode a WAV fixture into a compressed container via bundled ffmpeg.
 
@@ -100,6 +124,7 @@ def main() -> None:
     tone_440hz_48k()
     mix_100_400_1000hz_44k1()
     noise_250hz_48k()
+    stereo_tone_440hz_48k()
     compressed_fixtures()
 
 
