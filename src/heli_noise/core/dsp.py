@@ -180,6 +180,35 @@ def apply_notch_chain(
     return result
 
 
+def parse_frequency_list(text: str) -> list[float]:
+    """Parse a comma-separated list of notch frequencies.
+
+    Only checks that each token is a number; Nyquist/positivity
+    validation happens later in :func:`apply_notch`. Blank tokens
+    (e.g. from a trailing comma) are ignored; an empty or blank
+    ``text`` yields an empty list (no notches).
+
+    Args:
+        text: Comma-separated frequencies in Hz, e.g. ``"100, 250.5, 400"``.
+
+    Returns:
+        The parsed frequencies, in the order given.
+
+    Raises:
+        FilterConfigError: If any non-blank token is not a valid number.
+    """
+    frequencies: list[float] = []
+    for token in text.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            frequencies.append(float(token))
+        except ValueError as exc:
+            raise FilterConfigError(f"Invalid frequency value: {token!r}") from exc
+    return frequencies
+
+
 def normalize_peak(signal: np.ndarray) -> np.ndarray:
     """Peak-normalize a signal to [-1, 1] to prevent clipping.
 
