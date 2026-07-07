@@ -64,7 +64,7 @@ class TestProcessValidation:
 
 
 class TestProcessEndToEnd:
-    def test_successful_run_updates_status_and_spectrograms(self, qtbot, tmp_path: Path) -> None:
+    def test_successful_run_updates_status_and_spectra(self, qtbot, tmp_path: Path) -> None:
         window = MainWindow()
         qtbot.addWidget(window)
         source = tmp_path / "tone.mp4"
@@ -80,8 +80,8 @@ class TestProcessEndToEnd:
         assert window._process_status.text() == "✓"
         assert window._last_result is not None
         assert (tmp_path / "tone_filtered.wav").is_file()
-        assert len(window._before_canvas._axes.collections) >= 1
-        assert len(window._after_canvas._axes.collections) >= 1
+        assert len(window._before_panel.canvas._axes.lines) >= 1
+        assert len(window._after_panel.canvas._axes.lines) >= 1
         qtbot.waitUntil(lambda: window._progress_bar.value() == 100, timeout=2000)
         # The button only re-enables once the QThread has actually
         # stopped (not merely when the worker's finished signal fires) —
@@ -230,3 +230,52 @@ class TestBrowseDirectoryMemory:
         window._set_input_path(source)
 
         assert window._last_dir == str(nested)
+
+
+class TestSeekSlider:
+    def test_slider_disabled_until_a_result_exists(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._seek_slider.isEnabled() is False
+        assert window._seek_label.text() == "00:00.000 / 00:00.000"
+
+    def test_slider_enabled_after_processing(self, qtbot, tmp_path: Path) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        source = tmp_path / "tone.mp4"
+        shutil.copy(TONE_MP4, source)
+        window._set_input_path(source)
+        window._start_edit.setText("00:00")
+        window._stop_edit.setText("00:01")
+        window._on_process_clicked()
+        qtbot.waitUntil(lambda: window._thread is None, timeout=5000)
+
+        assert window._seek_slider.isEnabled() is True
+
+    def test_slider_release_seeks_the_adapter(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        seeks: list[float] = []
+        window._playback.seek = seeks.append  # type: ignore[method-assign]
+        window._seek_slider.setRange(0, 5000)
+        window._seek_slider.setValue(1500)
+
+        window._on_seek_slider_released()
+
+        assert seeks == [1.5]
+
+    def test_slider_drag_updates_label_without_seeking(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        seeks: list[float] = []
+        window._playback.seek = seeks.append  # type: ignore[method-assign]
+
+        window._on_seek_slider_moved(2500)
+
+        assert seeks == []
+        assert window._seek_label.text().startswith("00:02.500 /")
+
+    def test_format_seek_label(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._format_seek_label(1.25, 5.0) == "00:01.250 / 00:05.000"

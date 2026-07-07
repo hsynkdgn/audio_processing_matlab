@@ -12,9 +12,11 @@ import pytest
 from heli_noise.core.dsp import (
     DEFAULT_NPERSEG,
     SpectrogramResult,
+    SpectrumResult,
     apply_notch,
     apply_notch_chain,
     compute_spectrogram,
+    compute_spectrum,
     normalize_peak,
     parse_frequency_list,
     remove_dc_offset,
@@ -254,3 +256,46 @@ class TestParseFrequencyList:
     def test_invalid_token_raises(self) -> None:
         with pytest.raises(FilterConfigError, match="abc"):
             parse_frequency_list("100, abc, 400")
+
+
+class TestComputeSpectrum:
+    def test_tone_peaks_at_its_frequency(self) -> None:
+        signal, fs = load_wav(FIXTURES / "tone_440hz_48k.wav")
+        result = compute_spectrum(signal, fs)
+        assert isinstance(result, SpectrumResult)
+        assert result.magnitude_db.shape == result.frequencies.shape
+        peak_freq = result.frequencies[np.argmax(result.magnitude_db)]
+        assert peak_freq == pytest.approx(440.0, abs=float(result.frequencies[1]))
+
+    def test_mixture_shows_all_three_peaks(self) -> None:
+        signal, fs = load_wav(FIXTURES / "mix_100_400_1000hz_44k1.wav")
+        result = compute_spectrum(signal, fs)
+        floor_db = float(np.median(result.magnitude_db))
+        for target in (100.0, 400.0, 1000.0):
+            idx = int(np.argmin(np.abs(result.frequencies - target)))
+            assert result.magnitude_db[idx] > floor_db + 20  # clearly above the floor
+
+    def test_silence_is_finite(self) -> None:
+        result = compute_spectrum(np.zeros(8192), fs=48_000)
+        assert np.all(np.isfinite(result.magnitude_db))
+
+    def test_short_signal_does_not_crash(self) -> None:
+        short_signal = np.sin(2 * np.pi * 440 * np.arange(500) / 48_000)
+        result = compute_spectrum(short_signal, fs=48_000)
+        assert np.all(np.isfinite(result.magnitude_db))
+
+    def test_invalid_noverlap_rejected(self) -> None:
+        with pytest.raises(FilterConfigError, match="noverlap"):
+            compute_spectrum(np.zeros(4096), fs=48_000, nperseg=1024, noverlap=1024)
+
+    def test_invalid_nperseg_rejected(self) -> None:
+        with pytest.raises(FilterConfigError, match="nperseg"):
+            compute_spectrum(np.zeros(4096), fs=48_000, nperseg=0, noverlap=0)
+
+    def test_notched_spectrum_dips_at_notch_frequency(self) -> None:
+        signal, fs = load_wav(FIXTURES / "tone_440hz_48k.wav")
+        filtered = apply_notch(signal, fs, 440.0)
+        before = compute_spectrum(signal, fs)
+        after = compute_spectrum(filtered, fs)
+        idx = int(np.argmin(np.abs(before.frequencies - 440.0)))
+        assert after.magnitude_db[idx] < before.magnitude_db[idx] - 10

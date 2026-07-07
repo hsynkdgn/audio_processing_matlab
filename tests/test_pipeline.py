@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from heli_noise.core.dsp import SpectrogramResult
+from heli_noise.core.dsp import SpectrumResult
 from heli_noise.core.exceptions import FilterConfigError, InvalidTimeRangeError, MediaDecodeError
 from heli_noise.core.pipeline import ProcessResult, process_recording
 
@@ -23,24 +23,24 @@ class TestProcessRecording:
         assert result.output_path == out
         assert out.is_file()
         assert result.sample_rate == 48_000
-        assert isinstance(result.before_spectrogram, SpectrogramResult)
-        assert isinstance(result.after_spectrogram, SpectrogramResult)
+        assert isinstance(result.before_spectrum, SpectrumResult)
+        assert isinstance(result.after_spectrum, SpectrumResult)
 
         info = sf.info(str(out))
         assert info.channels == 1
         assert info.subtype == "PCM_16"
         assert info.samplerate == 48_000
 
-    def test_notch_reduces_energy_in_after_spectrogram(self, tmp_path: Path) -> None:
+    def test_notch_reduces_energy_in_after_spectrum(self, tmp_path: Path) -> None:
         out = tmp_path / "filtered.wav"
         result = process_recording(TONE_MP4, 0.0, 1.0, [440.0], out)
 
-        def _avg_db_near(spectrogram: SpectrogramResult, target_hz: float) -> float:
-            idx = int(np.argmin(np.abs(spectrogram.frequencies - target_hz)))
-            return float(spectrogram.magnitude_db[idx].mean())
+        def _db_near(spectrum: SpectrumResult, target_hz: float) -> float:
+            idx = int(np.argmin(np.abs(spectrum.frequencies - target_hz)))
+            return float(spectrum.magnitude_db[idx])
 
-        before_db = _avg_db_near(result.before_spectrogram, 440.0)
-        after_db = _avg_db_near(result.after_spectrogram, 440.0)
+        before_db = _db_near(result.before_spectrum, 440.0)
+        after_db = _db_near(result.after_spectrum, 440.0)
         assert after_db < before_db - 10  # meaningful attenuation, in dB
 
     def test_no_notch_frequencies_still_normalizes(self, tmp_path: Path) -> None:

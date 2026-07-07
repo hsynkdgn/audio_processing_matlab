@@ -36,6 +36,37 @@
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
 
+### UI revamp: spectrum view + playback seeking — 2026-07-07
+- User feedback after running the packaged exe on real Windows: the
+  time-frequency spectrograms weren't the desired view. Requested (and
+  built): frequency-vs-amplitude plots (no time axis) for before/after,
+  interactive charts, and a draggable seek control during playback
+  (user chose a plain slider over a waveform view when asked).
+- core: dsp.py gained SpectrumResult + compute_spectrum() (Welch, hann,
+  same nperseg/noverlap defaults and short-signal clamping as the STFT
+  path; power -> dB with epsilon). pipeline.ProcessResult now carries
+  before_spectrum/after_spectrum; spectrogram computation removed from
+  the pipeline (compute_spectrogram itself stays in core, still tested,
+  per the DSP rules — just no longer displayed).
+- ui: new spectrum_canvas.py (SpectrumCanvas line plot + SpectrumPanel
+  wrapping it with a matplotlib NavigationToolbar2QT for zoom/pan/reset
+  and a live cursor readout "NNN.N Hz, ±N.N dB"); old
+  spectrogram_canvas.py deleted. playback.py rewritten from fire-and-
+  forget sd.play to sd.OutputStream + pull callback: position_seconds/
+  duration_seconds properties, seek(seconds) (live while playing),
+  start-offset play, auto-finish at end of signal; still lazily imports
+  sounddevice so the module always imports headlessly. main_window.py:
+  QSlider + position/duration label next to the playback buttons,
+  100 ms QTimer syncing them while playing; drag updates the label,
+  release seeks; slider disabled until a result exists.
+- Tests: 166 passed (playback adapter mock suite rewritten around a
+  fake OutputStream whose callback tests pump manually — 13 tests;
+  7 new compute_spectrum tests incl. notch-dip verification; 7 spectrum
+  panel tests; 5 seek-slider tests). ruff + format clean.
+- Note for Windows testing: OutputStream playback and seeking were only
+  mock-tested here — docs/manual_test_windows.md gained seek-slider
+  checks; a fresh exe build is needed to see any of this.
+
 ### Project-wide review round 2 — 2026-07-05
 - A full-project review after PHASE 5 found one serious leftover bug,
   one latent crash, and a set of smaller gaps; all fixed:

@@ -16,9 +16,9 @@ from heli_noise.core.dsp import (
     DEFAULT_NOVERLAP,
     DEFAULT_NPERSEG,
     DEFAULT_Q,
-    SpectrogramResult,
+    SpectrumResult,
     apply_notch_chain,
-    compute_spectrogram,
+    compute_spectrum,
     normalize_peak,
     remove_dc_offset,
 )
@@ -36,16 +36,16 @@ class ProcessResult:
             "before" playback).
         processed_signal: Filtered and peak-normalized audio (for
             "after" playback; identical to what was written to disk).
-        before_spectrogram: Spectrogram of ``original_signal``.
-        after_spectrogram: Spectrogram of ``processed_signal``.
+        before_spectrum: Frequency-amplitude spectrum of ``original_signal``.
+        after_spectrum: Frequency-amplitude spectrum of ``processed_signal``.
     """
 
     output_path: Path
     sample_rate: int
     original_signal: np.ndarray
     processed_signal: np.ndarray
-    before_spectrogram: SpectrogramResult
-    after_spectrogram: SpectrogramResult
+    before_spectrum: SpectrumResult
+    after_spectrum: SpectrumResult
 
 
 def process_recording(
@@ -62,8 +62,8 @@ def process_recording(
     """Cut, analyze, filter, normalize, and save a recording.
 
     Steps: extract the requested interval's audio track to a temporary
-    WAV, remove DC offset, compute the "before" spectrogram, apply the
-    notch chain, peak-normalize, compute the "after" spectrogram, and
+    WAV, remove DC offset, compute the "before" spectrum, apply the
+    notch chain, peak-normalize, compute the "after" spectrum, and
     write the result to ``output_path``. Nothing is written to
     ``output_path`` if any earlier step raises.
 
@@ -74,8 +74,8 @@ def process_recording(
         notch_frequencies: Frequencies (Hz) to suppress, in order.
         output_path: Destination WAV path.
         q: Quality factor applied to every notch.
-        nperseg: STFT samples per segment (before/after spectrograms).
-        noverlap: STFT overlap samples (before/after spectrograms).
+        nperseg: Welch samples per segment (before/after spectra).
+        noverlap: Welch overlap samples (before/after spectra).
         progress_cb: Optional callable receiving coarse progress in
             percent (monotonic, ends at 100). The ui worker injects its
             progress signal here automatically.
@@ -103,7 +103,7 @@ def process_recording(
 
     original_signal = remove_dc_offset(raw_signal)
     _report(40)
-    before_spectrogram = compute_spectrogram(
+    before_spectrum = compute_spectrum(
         original_signal, sample_rate, nperseg=nperseg, noverlap=noverlap
     )
     _report(55)
@@ -111,7 +111,7 @@ def process_recording(
     filtered_signal = apply_notch_chain(original_signal, sample_rate, notch_frequencies, q=q)
     _report(75)
     processed_signal = normalize_peak(filtered_signal)
-    after_spectrogram = compute_spectrogram(
+    after_spectrum = compute_spectrum(
         processed_signal, sample_rate, nperseg=nperseg, noverlap=noverlap
     )
     _report(90)
@@ -124,6 +124,6 @@ def process_recording(
         sample_rate=sample_rate,
         original_signal=original_signal,
         processed_signal=processed_signal,
-        before_spectrogram=before_spectrogram,
-        after_spectrogram=after_spectrogram,
+        before_spectrum=before_spectrum,
+        after_spectrum=after_spectrum,
     )
