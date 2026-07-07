@@ -1,5 +1,5 @@
 """MainWindow: assembles the file picker, time/notch inputs, before/after
-spectrogram canvases, playback controls, status icons, and log panel.
+spectrum panels, playback controls, status icons, and log panel.
 
 Wires user actions to core.pipeline.process_recording via a background
 QThread (ui.worker) so the UI thread is never blocked; core exceptions
@@ -11,7 +11,7 @@ import contextlib
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QThread
+from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -30,10 +31,10 @@ from PySide6.QtWidgets import (
 from heli_noise.core.dsp import parse_frequency_list
 from heli_noise.core.exceptions import FilterConfigError, InvalidTimeRangeError
 from heli_noise.core.pipeline import ProcessResult, process_recording
-from heli_noise.core.timefmt import parse_time
+from heli_noise.core.timefmt import format_seconds, parse_time
 from heli_noise.ui import strings, theme
 from heli_noise.ui.playback import PlaybackAdapter, PlaybackError
-from heli_noise.ui.spectrogram_canvas import SpectrogramCanvas
+from heli_noise.ui.spectrum_canvas import SpectrumPanel
 from heli_noise.ui.status_icon import StatusIcon
 from heli_noise.ui.worker import Worker, start_worker
 
@@ -53,6 +54,10 @@ class MainWindow(QMainWindow):
         self._thread: QThread | None = None
         self._worker: Worker | None = None
 
+        self._seek_timer = QTimer(self)
+        self._seek_timer.setInterval(100)
+        self._seek_timer.timeout.connect(self._on_seek_timer_tick)
+
         self._build_ui()
         self._update_playback_buttons()
 
@@ -66,7 +71,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(self._build_file_row())
         layout.addLayout(self._build_params_row())
         layout.addLayout(self._build_process_row())
-        layout.addLayout(self._build_spectrogram_row())
+        layout.addLayout(self._build_spectrum_row())
         layout.addLayout(self._build_playback_row())
         layout.addWidget(QLabel(strings.LABEL_LOG_PANEL))
         self._log_edit = QPlainTextEdit()
@@ -110,12 +115,12 @@ class MainWindow(QMainWindow):
         row.addWidget(self._progress_bar, stretch=1)
         return row
 
-    def _build_spectrogram_row(self) -> QHBoxLayout:
+    def _build_spectrum_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        self._before_canvas = SpectrogramCanvas(title=strings.LABEL_BEFORE_SPECTROGRAM)
-        self._after_canvas = SpectrogramCanvas(title=strings.LABEL_AFTER_SPECTROGRAM)
-        row.addWidget(self._before_canvas)
-        row.addWidget(self._after_canvas)
+        self._before_panel = SpectrumPanel(title=strings.LABEL_BEFORE_SPECTRUM)
+        self._after_panel = SpectrumPanel(title=strings.LABEL_AFTER_SPECTRUM)
+        row.addWidget(self._before_panel)
+        row.addWidget(self._after_panel)
         return row
 
     def _build_playback_row(self) -> QHBoxLayout:
@@ -137,7 +142,14 @@ class MainWindow(QMainWindow):
         self._stop_playback_button.clicked.connect(self._on_stop_playback_clicked)
         row.addWidget(self._stop_playback_button)
 
-        row.addStretch(1)
+        self._seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self._seek_slider.setRange(0, 0)
+        self._seek_slider.sliderMoved.connect(self._on_seek_slider_moved)
+        self._seek_slider.sliderReleased.connect(self._on_seek_slider_released)
+        row.addWidget(self._seek_slider, stretch=1)
+
+        self._seek_label = QLabel(self._format_seek_label(0.0, 0.0))
+        row.addWidget(self._seek_label)
         return row
 
     # -- helpers ----------------------------------------------------------
@@ -161,6 +173,22 @@ class MainWindow(QMainWindow):
         self._play_before_button.setEnabled(playable)
         self._play_after_button.setEnabled(playable)
         self._stop_playback_button.setEnabled(playable)
+        self._seek_slider.setEnabled(playable)
+
+    @staticmethod
+    def _format_seek_label(position_s: float, duration_s: float) -> str:
+        return strings.LABEL_SEEK_POSITION.format(
+            position=format_seconds(position_s), duration=format_seconds(duration_s)
+        )
+
+    def _sync_seek_ui(self) -> None:
+        """Reflect the adapter's position/duration in the slider and label."""
+        duration = self._playback.duration_seconds
+        position = self._playback.position_seconds
+        self._seek_slider.setRange(0, int(duration * 1000))
+        if not self._seek_slider.isSliderDown():
+            self._seek_slider.setValue(int(position * 1000))
+        self._seek_label.setText(self._format_seek_label(position, duration))
 
     # -- file selection ---------------------------------------------------
 
@@ -233,8 +261,8 @@ class MainWindow(QMainWindow):
         self._last_result = result
         self._process_status.set_ok()
         self._log(strings.LOG_PROCESSING_DONE.format(output_path=result.output_path))
-        self._before_canvas.show_spectrogram(result.before_spectrogram)
-        self._after_canvas.show_spectrogram(result.after_spectrogram)
+        self._before_panel.show_spectrum(result.before_spectrum)
+        self._after_panel.show_spectrum(result.after_spectrum)
 
     def _on_process_failed(self, message: str) -> None:
         self._process_status.set_error(message)
@@ -260,12 +288,34 @@ class MainWindow(QMainWindow):
             self._log(strings.LOG_PLAYBACK_FAILED.format(error=exc))
             return
         status.set_ok()
+        self._sync_seek_ui()
+        self._seek_timer.start()
 
     def _on_stop_playback_clicked(self) -> None:
         try:
             self._playback.stop()
         except PlaybackError as exc:
             self._log(strings.LOG_PLAYBACK_FAILED.format(error=exc))
+        finally:
+            self._seek_timer.stop()
+            self._sync_seek_ui()
+
+    # -- seeking ------------------------------------------------------------
+
+    def _on_seek_timer_tick(self) -> None:
+        self._sync_seek_ui()
+        if not self._playback.is_playing:
+            self._seek_timer.stop()
+
+    def _on_seek_slider_moved(self, value_ms: int) -> None:
+        # live label feedback while dragging; the actual seek happens on release
+        self._seek_label.setText(
+            self._format_seek_label(value_ms / 1000.0, self._playback.duration_seconds)
+        )
+
+    def _on_seek_slider_released(self) -> None:
+        self._playback.seek(self._seek_slider.value() / 1000.0)
+        self._sync_seek_ui()
 
     # -- shutdown -----------------------------------------------------------
 
@@ -281,6 +331,7 @@ class MainWindow(QMainWindow):
             self._thread.wait(15_000)
             self._thread = None
             self._worker = None
+        self._seek_timer.stop()
         # closing anyway; there is no UI left to report a stop failure to
         with contextlib.suppress(PlaybackError):
             self._playback.stop()
