@@ -14,6 +14,10 @@ playback, file dialogs, or packaging.
 ## Audio playback (sounddevice)
 - [ ] Filtered audio plays through the default output device.
 - [ ] Play → Stop → Play again works without device errors.
+- [ ] Seek slider advances smoothly during playback; dragging it jumps
+      the audio to the released position without clicks or crashes
+      (OutputStream-based playback was only mock-tested in the sandbox).
+- [ ] Seeking to the very end stops playback cleanly.
 - [ ] Changing the Windows default device between plays is handled
       (at worst a clear error message, never a crash).
 - [ ] Playback of the "before" and "after" audio sounds correct: notched
@@ -45,7 +49,7 @@ playback, file dialogs, or packaging.
       VC++ assumptions beyond what Windows ships).
 - [ ] First launch is not blocked silently by SmartScreen/AV (document
       the expected SmartScreen prompt for users).
-- [ ] Spectrogram renders correctly (matplotlib Qt backend inside the
+- [ ] Spectrum plots render correctly (matplotlib Qt backend inside the
       frozen app); window scales on 125%/150% display scaling.
 - [ ] exe works from a path with spaces and non-ASCII characters.
 - [ ] Exit leaves no orphaned ffmpeg/worker processes (check Task Manager).
@@ -53,6 +57,9 @@ playback, file dialogs, or packaging.
 ## UI sanity (visual, not headless-testable)
 - [ ] Cockpit theme renders as designed (dark background, amber buttons,
       cyan readouts, green/red status icons) on light AND dark Windows themes.
+- [ ] Spectrum toolbar zoom/pan/home works with the mouse; the cursor
+      readout under each chart live-updates with "NNN.N Hz, ±N.N dB"
+      while hovering and resets when the mouse leaves the plot.
 - [ ] Long operations show progress and the window stays responsive
       (can move/resize during conversion of a large MP4).
 - [ ] Progress bar advances visibly (0→100) across the extract/analyze/

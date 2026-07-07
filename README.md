@@ -2,15 +2,14 @@
 
 Windows 10+ desktop application: extract audio from GoPro MP4 (or
 MP3/WAV) recordings made inside a helicopter, cut a time interval, run
-STFT spectrogram analysis, suppress selected frequencies with band-stop
+frequency-spectrum analysis, suppress selected frequencies with band-stop
 (notch) filters, preview the result graphically and audibly, and save the
 filtered audio as a WAV next to the source file.
 
-**Status:** functionally complete (PHASE 1–4): media handling, DSP,
-and the desktop UI are implemented and tested end-to-end. PHASE 5
-(Windows packaging) is in progress — see `checkpoints.md` for the
-phase-by-phase history and `docs/manual_test_windows.md` for the
-checks that still require a real Windows machine.
+**Status:** all 5 phases complete; the Windows exe builds via the
+"Build Windows exe" GitHub Actions workflow. See `checkpoints.md` for
+the phase-by-phase history and `docs/manual_test_windows.md` for the
+checks that require a real Windows machine.
 
 ## Usage (once packaged, or via `python -m heli_noise` on Windows)
 
@@ -20,8 +19,11 @@ checks that still require a real Windows machine.
 3. Enter one or more **notch frequencies** in Hz, comma-separated
    (e.g. `17, 34, 51` for a rotor's fundamental + harmonics).
 4. Click **Process** — a progress bar tracks extract → analyze → filter
-   → normalize → save; before/after spectrograms appear when done.
-5. **Play before** / **Play after** to audition the result; the filtered
+   → normalize → save; interactive before/after frequency-amplitude
+   spectra appear when done (zoom/pan via the toolbar; hover shows the
+   exact Hz/dB under the cursor).
+5. **Play before** / **Play after** to audition the result — drag the
+   seek slider to scrub through the audio while it plays; the filtered
    WAV is written next to the source file as `<name>_filtered.wav`.
 
 ## Stack
