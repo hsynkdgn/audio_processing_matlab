@@ -1,5 +1,5 @@
-"""DSP primitives: spectrogram computation, notch (band-stop) filtering,
-DC-offset removal, and peak normalization.
+"""DSP primitives: spectrum/spectrogram computation, notch (band-stop)
+filtering, DC-offset removal, and peak normalization.
 
 Per .claude/skills/dsp-pipeline/SKILL.md: STFT defaults are window=hann,
 nperseg=2048, noverlap=1536 (all configurable); notches always use
@@ -10,7 +10,7 @@ never silently clamped.
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.signal import filtfilt, iirnotch, stft
+from scipy.signal import filtfilt, iirnotch, stft, welch
 
 from heli_noise.core.exceptions import FilterConfigError, InvalidTimeRangeError
 
@@ -35,6 +35,68 @@ class SpectrogramResult:
     frequencies: np.ndarray
     times: np.ndarray
     magnitude_db: np.ndarray
+
+
+@dataclass(frozen=True)
+class SpectrumResult:
+    """Result of a frequency-amplitude spectrum computation (no time axis).
+
+    Attributes:
+        frequencies: 1-D array of frequency bins in Hz.
+        magnitude_db: 1-D array of magnitude in dB, one value per bin.
+    """
+
+    frequencies: np.ndarray
+    magnitude_db: np.ndarray
+
+
+def compute_spectrum(
+    signal: np.ndarray,
+    fs: float,
+    window: str = DEFAULT_WINDOW,
+    nperseg: int = DEFAULT_NPERSEG,
+    noverlap: int = DEFAULT_NOVERLAP,
+) -> SpectrumResult:
+    """Compute a frequency-amplitude spectrum in dB (Welch's method).
+
+    Welch averaging over overlapping segments gives a stable amplitude
+    estimate per frequency for noisy helicopter recordings — this is the
+    "which frequencies are loud" view the UI shows before/after
+    filtering, as opposed to the time-resolved spectrogram.
+
+    Args:
+        signal: 1-D float samples (mono).
+        fs: Sample rate in Hz.
+        window: scipy window name.
+        nperseg: Samples per Welch segment.
+        noverlap: Overlapping samples between segments; must be < nperseg.
+
+    Returns:
+        A :class:`SpectrumResult` with frequencies and dB magnitude.
+
+    Raises:
+        FilterConfigError: If ``nperseg`` is not positive or
+            ``noverlap >= nperseg``.
+    """
+    if nperseg <= 0:
+        raise FilterConfigError(f"nperseg must be > 0, got {nperseg}")
+    if noverlap >= nperseg:
+        raise FilterConfigError(f"noverlap ({noverlap}) must be less than nperseg ({nperseg})")
+
+    # Same short-signal clamping rationale as compute_spectrogram: scipy
+    # shrinks nperseg to the signal length but leaves noverlap untouched.
+    effective_nperseg = min(nperseg, len(signal))
+    effective_noverlap = min(noverlap, max(effective_nperseg - 1, 0))
+
+    frequencies, power = welch(
+        signal,
+        fs=fs,
+        window=window,
+        nperseg=effective_nperseg,
+        noverlap=effective_noverlap,
+    )
+    magnitude_db = 10 * np.log10(power + _LOG_EPSILON)  # power -> dB
+    return SpectrumResult(frequencies=frequencies, magnitude_db=magnitude_db)
 
 
 def remove_dc_offset(signal: np.ndarray) -> np.ndarray:
