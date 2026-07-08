@@ -10,7 +10,7 @@ never silently clamped.
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.signal import filtfilt, iirnotch, stft, welch
+from scipy.signal import filtfilt, find_peaks, iirnotch, stft, welch
 
 from heli_noise.core.exceptions import FilterConfigError, InvalidTimeRangeError
 
@@ -97,6 +97,71 @@ def compute_spectrum(
     )
     magnitude_db = 10 * np.log10(power + _LOG_EPSILON)  # power -> dB
     return SpectrumResult(frequencies=frequencies, magnitude_db=magnitude_db)
+
+
+@dataclass(frozen=True)
+class SpectrumPeak:
+    """A prominent local maximum in a frequency-amplitude spectrum.
+
+    Attributes:
+        frequency: Peak center frequency in Hz.
+        magnitude_db: Peak amplitude in dB.
+    """
+
+    frequency: float
+    magnitude_db: float
+
+
+def find_spectrum_peaks(
+    result: SpectrumResult,
+    *,
+    max_peaks: int = 6,
+    min_prominence_db: float = 6.0,
+    min_distance_hz: float = 5.0,
+) -> list[SpectrumPeak]:
+    """Find the most prominent peaks in a frequency-amplitude spectrum.
+
+    Mirrors what a MATLAB user would pick out by eye — distinct spectral
+    peaks such as a rotor's fundamental and its harmonics — rather than
+    every noisy wiggle. Used to annotate the UI's before/after spectrum
+    plots; this function itself has no GUI dependency.
+
+    Args:
+        result: The spectrum to search.
+        max_peaks: Maximum number of peaks to return (the most prominent
+            ones are kept if more are found).
+        min_prominence_db: Minimum prominence (in dB) for a local maximum
+            to count as a peak.
+        min_distance_hz: Minimum frequency separation enforced between
+            reported peaks, in Hz.
+
+    Returns:
+        Peaks sorted by ascending frequency, at most ``max_peaks`` long.
+        Empty if the spectrum has fewer than 3 bins or no bin clears
+        ``min_prominence_db``.
+    """
+    frequencies = result.frequencies
+    magnitude_db = result.magnitude_db
+    if len(frequencies) < 3:
+        return []
+
+    bin_spacing = float(frequencies[1] - frequencies[0])
+    min_distance_bins = max(1, round(min_distance_hz / bin_spacing)) if bin_spacing > 0 else 1
+
+    indices, properties = find_peaks(
+        magnitude_db, prominence=min_prominence_db, distance=min_distance_bins
+    )
+    if len(indices) == 0:
+        return []
+
+    # Keep the most prominent peaks first, then report them left-to-right
+    # (ascending frequency) the way a spectrum is naturally read.
+    ranked = np.argsort(properties["prominences"])[::-1][:max_peaks]
+    kept = sorted(indices[ranked])
+    return [
+        SpectrumPeak(frequency=float(frequencies[i]), magnitude_db=float(magnitude_db[i]))
+        for i in kept
+    ]
 
 
 def remove_dc_offset(signal: np.ndarray) -> np.ndarray:

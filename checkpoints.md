@@ -1,13 +1,15 @@
 # Checkpoints
 
 ## Status Summary
-- Last update: 2026-07-05
-- Active phase: ALL 5 PHASES COMPLETE from the cloud-sandbox side. The
-  one remaining item in the entire project is Windows-only and cannot
-  be done from this environment by design: running docs/manual_test_windows.md
-  on a real Windows 10/11 machine (playback, file dialogs, the packaged
-  exe itself). Everything else — core, DSP, UI, integration, and the
-  packaging pipeline — is implemented, tested, and committed.
+- Last update: 2026-07-08
+- Active phase: ALL 5 PHASES COMPLETE from the cloud-sandbox side, PLUS
+  the spectrum/seek UI revamp (PR #4, merged). The one remaining item in
+  the entire project is Windows-only and cannot be done from this
+  environment by design: working through docs/manual_test_windows.md by
+  hand on a real Windows 10/11 machine (playback, file dialogs, the
+  packaged exe itself). Everything else — core, DSP, UI, integration,
+  and the packaging pipeline — is implemented, tested, committed, and
+  now CI-build-verified (see below).
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -15,12 +17,18 @@
     docs/manual_test_windows.md). It stays in requirements.txt for the
     Windows target; sandbox code/tests must never import it at module
     scope outside the playback adapter.
-  - The packaged .exe itself is UNVERIFIED on real Windows — the sandbox
-    can only sanity-build the PyInstaller spec into a throwaway Linux
-    ELF (proves Analysis/hidden-imports/data-collection all resolve; see
-    PHASE 5 record). The actual build-windows.yml run on windows-latest
-    has not been observed by this session. First person to run it should
-    download the artifact and work through docs/manual_test_windows.md.
+  - The packaged .exe has now been BUILT successfully on real Windows CI
+    (windows-latest) twice, confirming the spec/workflow itself is sound:
+    - Run `28885412104` — PR #3 merge commit, old spectrogram-based UI.
+    - Run `28895743603` — PR #4 merge commit (`7434551f`), current
+      frequency-amplitude spectrum + seek-slider UI.
+    Both completed with `conclusion: success` and produced the
+    `HeliNoiseAnalyzer-windows` artifact. What is still UNVERIFIED is the
+    exe's actual *behavior* on Windows — nobody has yet run through
+    docs/manual_test_windows.md (launch, playback/seeking, file dialogs,
+    ffmpeg extraction) on a real machine. Whoever does this next should
+    download the artifact from run `28895743603` (has the current UI)
+    and work the checklist.
   - Sandbox Python is 3.11.15; CI and packaging use 3.12 (the app target).
 
 ## Phase List
@@ -35,6 +43,56 @@
 (when each phase completes: what was done, which files, test results,
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
+
+### MATLAB-style spectrum plots — 2026-07-08
+- User request (a MATLAB user): the before/after spectrum charts should
+  look and behave like MATLAB's `plot` — "readable and examinable". User
+  chose (via AskUserQuestion): MATLAB light theme for the chart area only
+  (rest of the app stays cockpit-dark), plus data tips, minor-grid toggle,
+  and peak markers; no legend requested.
+- core: dsp.py gained `SpectrumPeak` + `find_spectrum_peaks()` — pure DSP,
+  wraps `scipy.signal.find_peaks` with prominence + a Hz-based minimum
+  distance (converted to bins from the spectrum's own bin spacing), caps
+  the result at `max_peaks`, returns peaks sorted by ascending frequency.
+  No GUI dependency; unit-tested directly (tone, 3-tone mixture, silence/
+  flat-spectrum edge cases, `max_peaks` cap, `min_distance_hz` merging).
+- ui/theme.py: added a separate `PLOT_*` constant group (MATLAB light
+  palette: white background, MATLAB blue `#0072BD` line, light-gray major
+  grid, paler minor grid, dark boxed-axes spines, pale-yellow data-tip
+  callout, MATLAB-orange peak markers) — existing cockpit constants
+  untouched.
+- ui/spectrum_canvas.py rewritten:
+  - `_style_axes()` now renders the MATLAB light look instead of the
+    cockpit dark one; minor grid re-applied from stored state every call
+    (since `Axes.clear()` wipes grid settings along with everything else).
+  - `SpectrumCanvas` stores the plotted frequency/magnitude arrays so
+    data tips can snap to the nearest real sample and peaks can be
+    recomputed on toggle without needing a fresh `SpectrumResult`.
+  - Data tips: `add_datatip(x)` pins a marker + pale-yellow annotated
+    callout (`SPECTRUM_DATATIP` text) at the nearest bin; `clear_datatips()`
+    removes them all. Wired in `SpectrumPanel` via `button_press_event`:
+    left-click adds, right-click clears, both suppressed while a toolbar
+    zoom/pan tool is active (`NavigationToolbar2QT.mode` is truthy) so
+    clicks aren't fought over.
+  - Peak markers: drawn via `find_spectrum_peaks`, toggle checkbox
+    (`CHECKBOX_PEAK_MARKERS`, default on) calls
+    `set_peak_markers_enabled()` which redraws/clears them.
+  - Minor-grid checkbox (`CHECKBOX_MINOR_GRID`, default on) calls
+    `set_minor_grid_enabled()`.
+  - `show_spectrum`/`clear` reset stored arrays, data tips, and peak
+    artists together so nothing leaks across a new run.
+- Tests: 189 passed total (7 new `find_spectrum_peaks` tests; the
+  spectrum-canvas suite grew from 7 to 22 covering MATLAB line color,
+  data-tip add/clear/no-op cases, toolbar-mode suppression, minor-grid
+  and peak-marker toggling, and `clear()` resetting everything). The two
+  original "line count" tests now disable peak markers first so they
+  keep isolating just the main curve — the change was necessary because
+  peak markers are themselves drawn as `Axes.plot` lines, not because the
+  main-curve invariant changed. ruff + format clean.
+- Note for Windows testing: docs/manual_test_windows.md gained checks for
+  the MATLAB light look, data tips (pin/clear, suppressed under toolbar
+  tools), and both new checkboxes — none of this can be verified for real
+  mouse/rendering behavior in the headless sandbox.
 
 ### UI revamp: spectrum view + playback seeking — 2026-07-07
 - User feedback after running the packaged exe on real Windows: the
@@ -66,6 +124,12 @@ end of every phase)
 - Note for Windows testing: OutputStream playback and seeking were only
   mock-tested here — docs/manual_test_windows.md gained seek-slider
   checks; a fresh exe build is needed to see any of this.
+- Update 2026-07-08: PR #4 merged (commit `7434551f`); the user then
+  manually triggered build-windows.yml on `main` at that commit
+  (run `28895743603`) and it completed successfully, producing the
+  `HeliNoiseAnalyzer-windows` artifact containing this spectrum/seek UI.
+  The CI build itself is confirmed green; manual behavioral testing per
+  docs/manual_test_windows.md is still the user's outstanding step.
 
 ### Project-wide review round 2 — 2026-07-05
 - A full-project review after PHASE 5 found one serious leftover bug,

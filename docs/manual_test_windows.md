@@ -57,9 +57,21 @@ playback, file dialogs, or packaging.
 ## UI sanity (visual, not headless-testable)
 - [ ] Cockpit theme renders as designed (dark background, amber buttons,
       cyan readouts, green/red status icons) on light AND dark Windows themes.
+- [ ] Spectrum charts render in the MATLAB-style light look (white axes,
+      MATLAB-blue curve, boxed axes) — a deliberate contrast with the dark
+      cockpit theme around them, not a rendering bug.
 - [ ] Spectrum toolbar zoom/pan/home works with the mouse; the cursor
       readout under each chart live-updates with "NNN.N Hz, ±N.N dB"
       while hovering and resets when the mouse leaves the plot.
+- [ ] Data tips: left-clicking the curve (with no toolbar zoom/pan tool
+      active) pins a pale-yellow callout with the exact Hz/dB at the
+      nearest point; multiple clicks pin multiple tips; right-click clears
+      them all. Clicking while the toolbar's Pan or Zoom tool is active
+      does NOT drop a data tip (the tool keeps the click).
+- [ ] "Minor grid" checkbox toggles fine gridlines on/off instantly.
+- [ ] "Peak markers" checkbox toggles orange triangle markers + Hz labels
+      on the spectrum's most prominent peaks; unchecking removes them
+      cleanly (no leftover markers/labels).
 - [ ] Long operations show progress and the window stays responsive
       (can move/resize during conversion of a large MP4).
 - [ ] Progress bar advances visibly (0→100) across the extract/analyze/
