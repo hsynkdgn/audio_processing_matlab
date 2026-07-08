@@ -22,6 +22,13 @@ LABEL_SPECTRUM_FREQ_AXIS = "Frequency (Hz)"
 LABEL_SPECTRUM_AMPLITUDE_AXIS = "Amplitude (dB)"
 SPECTRUM_CURSOR_READOUT = "{frequency:.1f} Hz, {magnitude:.1f} dB"
 SPECTRUM_CURSOR_EMPTY = "— Hz, — dB"
+SPECTRUM_CURSOR_TOOLTIP = "Click to pin a data tip; right-click to clear all"
+
+SPECTRUM_DATATIP = "Frequency: {frequency:.1f} Hz\nAmplitude: {magnitude:.1f} dB"
+SPECTRUM_PEAK_LABEL = "{frequency:.0f} Hz"
+
+CHECKBOX_MINOR_GRID = "Minor grid"
+CHECKBOX_PEAK_MARKERS = "Peak markers"
 
 LABEL_SEEK_POSITION = "{position} / {duration}"
 

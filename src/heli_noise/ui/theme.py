@@ -14,6 +14,20 @@ STATUS_ERROR = "#ff4d4d"  # red
 TEXT = "#c9d1d9"
 BORDER = "#30363d"
 
+# MATLAB-style light palette for the spectrum plot area only (requested by
+# the user for readability/analysis) — the rest of the app stays cockpit
+# dark. Matches MATLAB's default `plot` look: white axes, MATLAB blue line,
+# light-gray grid, dark boxed axes, orange peak markers, pale-yellow
+# data-tip callouts.
+PLOT_BG = "#ffffff"
+PLOT_LINE = "#0072bd"  # MATLAB default line-plot blue
+PLOT_GRID = "#bfbfbf"  # major gridlines
+PLOT_GRID_MINOR = "#e6e6e6"  # minor gridlines
+PLOT_TEXT = "#262626"  # axis labels/title/ticks
+PLOT_AXES = "#262626"  # boxed-axes spines
+PLOT_DATATIP_BG = "#ffffcc"  # MATLAB's pale-yellow data-tip callout
+PLOT_PEAK = "#d95319"  # MATLAB default second-series orange
+
 
 def build_stylesheet() -> str:
     """Return the QSS stylesheet applying the cockpit palette globally."""
