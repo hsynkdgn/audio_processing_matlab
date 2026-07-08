@@ -44,6 +44,56 @@
 notes for the next session — updating this section is MANDATORY at the
 end of every phase)
 
+### MATLAB-style spectrum plots — 2026-07-08
+- User request (a MATLAB user): the before/after spectrum charts should
+  look and behave like MATLAB's `plot` — "readable and examinable". User
+  chose (via AskUserQuestion): MATLAB light theme for the chart area only
+  (rest of the app stays cockpit-dark), plus data tips, minor-grid toggle,
+  and peak markers; no legend requested.
+- core: dsp.py gained `SpectrumPeak` + `find_spectrum_peaks()` — pure DSP,
+  wraps `scipy.signal.find_peaks` with prominence + a Hz-based minimum
+  distance (converted to bins from the spectrum's own bin spacing), caps
+  the result at `max_peaks`, returns peaks sorted by ascending frequency.
+  No GUI dependency; unit-tested directly (tone, 3-tone mixture, silence/
+  flat-spectrum edge cases, `max_peaks` cap, `min_distance_hz` merging).
+- ui/theme.py: added a separate `PLOT_*` constant group (MATLAB light
+  palette: white background, MATLAB blue `#0072BD` line, light-gray major
+  grid, paler minor grid, dark boxed-axes spines, pale-yellow data-tip
+  callout, MATLAB-orange peak markers) — existing cockpit constants
+  untouched.
+- ui/spectrum_canvas.py rewritten:
+  - `_style_axes()` now renders the MATLAB light look instead of the
+    cockpit dark one; minor grid re-applied from stored state every call
+    (since `Axes.clear()` wipes grid settings along with everything else).
+  - `SpectrumCanvas` stores the plotted frequency/magnitude arrays so
+    data tips can snap to the nearest real sample and peaks can be
+    recomputed on toggle without needing a fresh `SpectrumResult`.
+  - Data tips: `add_datatip(x)` pins a marker + pale-yellow annotated
+    callout (`SPECTRUM_DATATIP` text) at the nearest bin; `clear_datatips()`
+    removes them all. Wired in `SpectrumPanel` via `button_press_event`:
+    left-click adds, right-click clears, both suppressed while a toolbar
+    zoom/pan tool is active (`NavigationToolbar2QT.mode` is truthy) so
+    clicks aren't fought over.
+  - Peak markers: drawn via `find_spectrum_peaks`, toggle checkbox
+    (`CHECKBOX_PEAK_MARKERS`, default on) calls
+    `set_peak_markers_enabled()` which redraws/clears them.
+  - Minor-grid checkbox (`CHECKBOX_MINOR_GRID`, default on) calls
+    `set_minor_grid_enabled()`.
+  - `show_spectrum`/`clear` reset stored arrays, data tips, and peak
+    artists together so nothing leaks across a new run.
+- Tests: 189 passed total (7 new `find_spectrum_peaks` tests; the
+  spectrum-canvas suite grew from 7 to 22 covering MATLAB line color,
+  data-tip add/clear/no-op cases, toolbar-mode suppression, minor-grid
+  and peak-marker toggling, and `clear()` resetting everything). The two
+  original "line count" tests now disable peak markers first so they
+  keep isolating just the main curve — the change was necessary because
+  peak markers are themselves drawn as `Axes.plot` lines, not because the
+  main-curve invariant changed. ruff + format clean.
+- Note for Windows testing: docs/manual_test_windows.md gained checks for
+  the MATLAB light look, data tips (pin/clear, suppressed under toolbar
+  tools), and both new checkboxes — none of this can be verified for real
+  mouse/rendering behavior in the headless sandbox.
+
 ### UI revamp: spectrum view + playback seeking — 2026-07-07
 - User feedback after running the packaged exe on real Windows: the
   time-frequency spectrograms weren't the desired view. Requested (and

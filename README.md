@@ -20,8 +20,11 @@ checks that require a real Windows machine.
    (e.g. `17, 34, 51` for a rotor's fundamental + harmonics).
 4. Click **Process** — a progress bar tracks extract → analyze → filter
    → normalize → save; interactive before/after frequency-amplitude
-   spectra appear when done (zoom/pan via the toolbar; hover shows the
-   exact Hz/dB under the cursor).
+   spectra appear when done, styled after MATLAB's `plot` (white axes,
+   MATLAB-blue curve): zoom/pan via the toolbar, hover shows the exact
+   Hz/dB under the cursor, **left-click the curve to pin a data tip**
+   (right-click clears them), and toggle **minor grid** / **peak markers**
+   (auto-detected rotor fundamental/harmonics) per chart.
 5. **Play before** / **Play after** to audition the result — drag the
    seek slider to scrub through the audio while it plays; the filtered
    WAV is written next to the source file as `<name>_filtered.wav`.
