@@ -12,11 +12,13 @@ import pytest
 from heli_noise.core.dsp import (
     DEFAULT_NPERSEG,
     SpectrogramResult,
+    SpectrumPeak,
     SpectrumResult,
     apply_notch,
     apply_notch_chain,
     compute_spectrogram,
     compute_spectrum,
+    find_spectrum_peaks,
     normalize_peak,
     parse_frequency_list,
     remove_dc_offset,
@@ -299,3 +301,65 @@ class TestComputeSpectrum:
         after = compute_spectrum(filtered, fs)
         idx = int(np.argmin(np.abs(before.frequencies - 440.0)))
         assert after.magnitude_db[idx] < before.magnitude_db[idx] - 10
+
+
+class TestFindSpectrumPeaks:
+    def test_single_tone_yields_one_peak_near_its_frequency(self) -> None:
+        signal, fs = load_wav(FIXTURES / "tone_440hz_48k.wav")
+        result = compute_spectrum(signal, fs)
+        peaks = find_spectrum_peaks(result)
+        assert len(peaks) == 1
+        assert isinstance(peaks[0], SpectrumPeak)
+        assert peaks[0].frequency == pytest.approx(440.0, abs=float(result.frequencies[1]))
+
+    def test_mixture_yields_three_peaks_at_correct_frequencies(self) -> None:
+        signal, fs = load_wav(FIXTURES / "mix_100_400_1000hz_44k1.wav")
+        result = compute_spectrum(signal, fs)
+        peaks = find_spectrum_peaks(result)
+        found = sorted(peak.frequency for peak in peaks)
+        assert len(found) == 3
+        for target, actual in zip((100.0, 400.0, 1000.0), found, strict=True):
+            assert actual == pytest.approx(target, abs=float(result.frequencies[1]) * 2)
+
+    def test_peaks_sorted_by_ascending_frequency(self) -> None:
+        signal, fs = load_wav(FIXTURES / "mix_100_400_1000hz_44k1.wav")
+        result = compute_spectrum(signal, fs)
+        peaks = find_spectrum_peaks(result)
+        frequencies = [peak.frequency for peak in peaks]
+        assert frequencies == sorted(frequencies)
+
+    def test_silence_yields_no_peaks(self) -> None:
+        result = compute_spectrum(np.zeros(8192), fs=48_000)
+        assert find_spectrum_peaks(result) == []
+
+    def test_flat_spectrum_yields_no_peaks(self) -> None:
+        result = SpectrumResult(
+            frequencies=np.linspace(0, 24_000, 100), magnitude_db=np.full(100, -40.0)
+        )
+        assert find_spectrum_peaks(result) == []
+
+    def test_too_few_bins_yields_no_peaks(self) -> None:
+        result = SpectrumResult(
+            frequencies=np.array([0.0, 100.0]), magnitude_db=np.array([1.0, 2.0])
+        )
+        assert find_spectrum_peaks(result) == []
+
+    def test_max_peaks_caps_the_result(self) -> None:
+        signal, fs = load_wav(FIXTURES / "mix_100_400_1000hz_44k1.wav")
+        result = compute_spectrum(signal, fs)
+        peaks = find_spectrum_peaks(result, max_peaks=2)
+        assert len(peaks) == 2
+
+    def test_min_distance_hz_merges_nearby_peaks(self) -> None:
+        # Two adjacent bins bumped up close together should collapse to a
+        # single reported peak once min_distance_hz spans several bins.
+        frequencies = np.linspace(0, 1000, 501)  # 2 Hz/bin
+        magnitude_db = np.full(501, -60.0)
+        magnitude_db[100] = 0.0
+        magnitude_db[102] = -1.0  # 4 Hz away from the first bump
+        result = SpectrumResult(frequencies=frequencies, magnitude_db=magnitude_db)
+
+        peaks = find_spectrum_peaks(result, min_distance_hz=50.0)
+
+        assert len(peaks) == 1
+        assert peaks[0].frequency == pytest.approx(200.0, abs=1.0)
