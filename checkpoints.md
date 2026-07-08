@@ -1,13 +1,15 @@
 # Checkpoints
 
 ## Status Summary
-- Last update: 2026-07-05
-- Active phase: ALL 5 PHASES COMPLETE from the cloud-sandbox side. The
-  one remaining item in the entire project is Windows-only and cannot
-  be done from this environment by design: running docs/manual_test_windows.md
-  on a real Windows 10/11 machine (playback, file dialogs, the packaged
-  exe itself). Everything else — core, DSP, UI, integration, and the
-  packaging pipeline — is implemented, tested, and committed.
+- Last update: 2026-07-08
+- Active phase: ALL 5 PHASES COMPLETE from the cloud-sandbox side, PLUS
+  the spectrum/seek UI revamp (PR #4, merged). The one remaining item in
+  the entire project is Windows-only and cannot be done from this
+  environment by design: working through docs/manual_test_windows.md by
+  hand on a real Windows 10/11 machine (playback, file dialogs, the
+  packaged exe itself). Everything else — core, DSP, UI, integration,
+  and the packaging pipeline — is implemented, tested, committed, and
+  now CI-build-verified (see below).
 - Known open issues:
   - sounddevice cannot be verified in the sandbox: `import sounddevice`
     raises `OSError: PortAudio library not found` (no audio stack in the
@@ -15,12 +17,18 @@
     docs/manual_test_windows.md). It stays in requirements.txt for the
     Windows target; sandbox code/tests must never import it at module
     scope outside the playback adapter.
-  - The packaged .exe itself is UNVERIFIED on real Windows — the sandbox
-    can only sanity-build the PyInstaller spec into a throwaway Linux
-    ELF (proves Analysis/hidden-imports/data-collection all resolve; see
-    PHASE 5 record). The actual build-windows.yml run on windows-latest
-    has not been observed by this session. First person to run it should
-    download the artifact and work through docs/manual_test_windows.md.
+  - The packaged .exe has now been BUILT successfully on real Windows CI
+    (windows-latest) twice, confirming the spec/workflow itself is sound:
+    - Run `28885412104` — PR #3 merge commit, old spectrogram-based UI.
+    - Run `28895743603` — PR #4 merge commit (`7434551f`), current
+      frequency-amplitude spectrum + seek-slider UI.
+    Both completed with `conclusion: success` and produced the
+    `HeliNoiseAnalyzer-windows` artifact. What is still UNVERIFIED is the
+    exe's actual *behavior* on Windows — nobody has yet run through
+    docs/manual_test_windows.md (launch, playback/seeking, file dialogs,
+    ffmpeg extraction) on a real machine. Whoever does this next should
+    download the artifact from run `28895743603` (has the current UI)
+    and work the checklist.
   - Sandbox Python is 3.11.15; CI and packaging use 3.12 (the app target).
 
 ## Phase List
@@ -66,6 +74,12 @@ end of every phase)
 - Note for Windows testing: OutputStream playback and seeking were only
   mock-tested here — docs/manual_test_windows.md gained seek-slider
   checks; a fresh exe build is needed to see any of this.
+- Update 2026-07-08: PR #4 merged (commit `7434551f`); the user then
+  manually triggered build-windows.yml on `main` at that commit
+  (run `28895743603`) and it completed successfully, producing the
+  `HeliNoiseAnalyzer-windows` artifact containing this spectrum/seek UI.
+  The CI build itself is confirmed green; manual behavioral testing per
+  docs/manual_test_windows.md is still the user's outstanding step.
 
 ### Project-wide review round 2 — 2026-07-05
 - A full-project review after PHASE 5 found one serious leftover bug,
